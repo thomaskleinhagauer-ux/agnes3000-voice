@@ -415,7 +415,6 @@ function App() {
   // ================================
 
   const sendMessage = useCallback(async () => {
-    alert('sendMessage called! inputText: ' + inputText.substring(0, 20));
     console.log('🚀 sendMessage called!', { inputText, currentRoom, hasClaudeClient: !!claudeClientRef.current, hasGeminiClient: !!geminiClientRef.current });
     if (!inputText.trim() || !currentRoom || currentRoom === 'assessment') {
       console.log('❌ Early return: empty input or wrong room');
@@ -502,6 +501,7 @@ function App() {
 
       let fullResponse = '';
 
+      console.log('🔀 Provider check:', { provider: settings.aiProvider, hasClaude: !!claudeClientRef.current, hasGemini: !!geminiClientRef.current });
       if (settings.aiProvider === 'claude' && claudeClientRef.current) {
         console.log('📡 Starting Claude streaming request...');
         // Streaming response with prompt caching for documents
@@ -527,12 +527,16 @@ function App() {
           playTTS(fullResponse);
         }
       } else if (geminiClientRef.current) {
+        console.log('📡 Using Gemini instead of Claude');
         fullResponse = await geminiClientRef.current.generateText(systemPrompt, history);
         if (settings.ttsEnabled) {
           playTTS(fullResponse);
         }
+      } else {
+        console.log('❌ No AI client available for request!');
       }
 
+      console.log('📝 Full response length:', fullResponse.length, 'Preview:', fullResponse.substring(0, 100));
       // Extract emotion and clean response
       const emotion = extractEmotion(fullResponse);
       const cleanResponse = removeEmotionTag(fullResponse);
