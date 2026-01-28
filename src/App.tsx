@@ -39,7 +39,7 @@ import {
   FaceEmotion
 } from './emotionDetection';
 
-import { Avatar3D } from './Avatar3D';
+import { AnimatedAvatar } from './AnimatedAvatar';
 
 import { signInAnonymousUser } from './firebase';
 import { saveToFirebase, loadFromFirebase } from './firebaseStorage';
@@ -1321,7 +1321,7 @@ Format:
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
                   {messages[currentRoom]?.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-amber-400">
-                      <Avatar3D
+                      <AnimatedAvatar
                         emotion={faceEmotion?.dominant || 'neutral'}
                         isSpeaking={isSpeaking}
                         size="large"
@@ -1353,7 +1353,7 @@ Format:
                           )}
                           {msg.role === 'assistant' && (
                             <div className="flex items-center gap-2 mb-1">
-                              <Avatar3D
+                              <AnimatedAvatar
                                 emotion={msg.emotion === 'empathetic' ? 'happy' :
                                          msg.emotion === 'encouraging' ? 'happy' :
                                          msg.emotion === 'concerned' ? 'sad' :
@@ -1374,7 +1374,7 @@ Format:
                     <div className="flex justify-start">
                       <div className="bg-white shadow rounded-2xl px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <Avatar3D emotion="neutral" isSpeaking={true} size="small" />
+                          <AnimatedAvatar emotion="neutral" isSpeaking={true} size="small" />
                           <span className="text-amber-600">tippt...</span>
                         </div>
                       </div>
