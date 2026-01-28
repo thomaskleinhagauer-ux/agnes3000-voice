@@ -99,6 +99,12 @@ function App() {
   const [isGeneratingStrategy, setIsGeneratingStrategy] = useState(false);
   const [showAssessmentPasswordModal, setShowAssessmentPasswordModal] = useState(false);
   const [assessmentPasswordInput, setAssessmentPasswordInput] = useState('');
+  const [pendingStrategy, setPendingStrategy] = useState<{
+    content: string;
+    person: 'tom' | 'lisa';
+    questions: AssessmentQuestion[];
+    answers: Record<string, string>;
+  } | null>(null);
 
   // Camera & Emotion Tracking
   const [isCameraOn, setIsCameraOn] = useState(false);
@@ -198,7 +204,7 @@ function App() {
     };
   }, [activeSession, sessionTimeRemaining]);
 
-  // Emotion tracking interval
+  // Emotion tracking interval - reduced frequency for better performance
   useEffect(() => {
     if (isCameraOn && settings.emotionTrackingEnabled && claudeClientRef.current) {
       emotionIntervalRef.current = setInterval(async () => {
@@ -207,10 +213,10 @@ function App() {
           setCurrentEmotionAnalysis(analysis);
           setAppState(prev => ({
             ...prev,
-            emotionHistory: [analysis, ...prev.emotionHistory].slice(0, 1000),
+            emotionHistory: [analysis, ...prev.emotionHistory].slice(0, 100), // Reduced from 1000 to 100
           }));
         }
-      }, 500); // Every 0.5 seconds
+      }, 2000); // Every 2 seconds (reduced from 0.5s for better performance)
     }
 
     return () => {
@@ -489,7 +495,7 @@ function App() {
         try {
           const base64 = btoa(String.fromCharCode(...audioData));
           const audio = new Audio(`data:audio/wav;base64,${base64}`);
-          audio.playsInline = true;
+          (audio as any).playsInline = true; // iOS attribute
           await audio.play();
         } catch (err) {
           console.error('iOS audio play error:', err);
@@ -699,13 +705,13 @@ function App() {
       setShowAssessmentPasswordModal(true);
       setAssessmentPasswordInput('');
 
-      // Store pending strategy in temp
-      (window as any).__pendingStrategy = {
+      // Store pending strategy in React state
+      setPendingStrategy({
         content: strategyContent,
         person: assessmentPerson,
         questions: assessmentQuestions,
         answers: assessmentAnswers,
-      };
+      });
 
     } catch (error) {
       console.error('Strategy error:', error);
@@ -720,8 +726,7 @@ function App() {
       return;
     }
 
-    const pending = (window as any).__pendingStrategy;
-    if (!pending || !assessmentPerson) return;
+    if (!pendingStrategy || !assessmentPerson) return;
 
     // Save password
     if (assessmentPerson === 'tom') {
@@ -735,12 +740,12 @@ function App() {
     const newStrategy: StrategyDocument = {
       id: crypto.randomUUID(),
       title: `${assessmentPerson === 'tom' ? settings.user1Name : settings.user2Name} - Strategie #${existingCount + 1}`,
-      content: pending.content,
+      content: pendingStrategy.content,
       type: 'strategy',
       person: assessmentPerson,
       assessmentNumber: existingCount + 1,
-      questions: pending.questions,
-      answers: pending.answers,
+      questions: pendingStrategy.questions,
+      answers: pendingStrategy.answers,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -757,10 +762,10 @@ function App() {
     setAssessmentPerson(null);
     setAssessmentQuestions([]);
     setAssessmentAnswers({});
-    delete (window as any).__pendingStrategy;
+    setPendingStrategy(null);
 
     showToast('Assessment abgeschlossen! Strategie gespeichert.', 'success');
-  }, [assessmentPasswordInput, assessmentPerson, strategies, settings, updateSettings, showToast]);
+  }, [assessmentPasswordInput, assessmentPerson, pendingStrategy, strategies, settings, updateSettings, showToast]);
 
   // ================================
   // Documents
