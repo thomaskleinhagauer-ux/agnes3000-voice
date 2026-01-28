@@ -426,6 +426,7 @@ function App() {
       return;
     }
     console.log('✅ Proceeding with AI request...');
+    console.log('Provider:', settings.aiProvider, 'Model:', settings.claudeModel);
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -550,9 +551,11 @@ function App() {
       }));
 
     } catch (error) {
-      console.error('AI error:', error);
-      showToast('Fehler bei der KI-Antwort', 'error');
+      console.error('❌ AI error:', error);
+      console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+      showToast('Fehler: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'), 'error');
     } finally {
+      console.log('🏁 sendMessage finished');
       setIsLoading(false);
     }
   }, [inputText, currentRoom, currentSpeaker, settings, messages, strategies, documents, activeSession, sessionTimeRemaining, currentEmotionAnalysis, showToast]);
