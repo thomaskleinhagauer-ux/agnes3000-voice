@@ -438,13 +438,34 @@ function App() {
 
     try {
       // Build context
+      // Limit strategies to prevent token overflow (max ~30k chars = ~7.5k tokens)
+      const MAX_STRATEGY_CHARS = 30000;
+      let stratChars = 0;
       const relevantStrategies = strategies
         .filter(s => currentRoom === 'paar' || s.person === (currentRoom as 'tom' | 'lisa'))
-        .map(s => s.content);
+        .sort((a, b) => b.updatedAt - a.updatedAt) // newest first
+        .reduce((acc: string[], s) => {
+          if (stratChars + s.content.length <= MAX_STRATEGY_CHARS) {
+            stratChars += s.content.length;
+            acc.push(s.content);
+          }
+          return acc;
+        }, []);
 
+      // Limit documents to prevent token overflow (max ~50k chars = ~12.5k tokens)
+      const MAX_DOC_CHARS = 50000;
+      let docChars = 0;
       const relevantDocs = documents
         .filter(d => !d.isArchived)
-        .map(d => `[${d.title}]\n${d.content}`);
+        .sort((a, b) => b.updatedAt - a.updatedAt) // newest first
+        .reduce((acc: string[], d) => {
+          const docText = `[${d.title}]\n${d.content}`;
+          if (docChars + docText.length <= MAX_DOC_CHARS) {
+            docChars += docText.length;
+            acc.push(docText);
+          }
+          return acc;
+        }, []);
 
       const systemPrompt = getSystemPrompt(
         currentRoom,
