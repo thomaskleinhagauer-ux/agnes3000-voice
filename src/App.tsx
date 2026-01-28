@@ -250,6 +250,7 @@ function App() {
                 emotion: faceAnalysis.dominant,
                 confidence: faceAnalysis.confidence,
               } : undefined,
+              timestamp: faceAnalysis.timestamp,
             };
             setCurrentEmotionAnalysis(legacyAnalysis);
           }
