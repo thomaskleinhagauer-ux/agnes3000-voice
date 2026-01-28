@@ -400,10 +400,25 @@ export class GeminiClient {
       : apiKey;
   }
 
+  // Free fallback using browser's built-in speech synthesis
+  private webSpeechFallback(text: string): void {
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'de-DE';
+      utterance.rate = 0.9;
+      // Try to find a German voice
+      const voices = speechSynthesis.getVoices();
+      const germanVoice = voices.find(v => v.lang.startsWith('de'));
+      if (germanVoice) utterance.voice = germanVoice;
+      speechSynthesis.speak(utterance);
+      console.log('Using Web Speech API fallback for TTS');
+    }
+  }
+
   async generateTTS(text: string, voice: string = 'Zephyr'): Promise<Uint8Array | null> {
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -423,6 +438,8 @@ export class GeminiClient {
 
       if (!response.ok) {
         console.error('Gemini TTS error:', await response.text());
+        // Fallback to Web Speech API (free)
+        this.webSpeechFallback(text);
         return null;
       }
 
@@ -460,7 +477,7 @@ export class GeminiClient {
       }
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
