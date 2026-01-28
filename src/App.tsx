@@ -415,6 +415,7 @@ function App() {
   // ================================
 
   const sendMessage = useCallback(async () => {
+    alert('sendMessage called! inputText: ' + inputText.substring(0, 20));
     console.log('🚀 sendMessage called!', { inputText, currentRoom, hasClaudeClient: !!claudeClientRef.current, hasGeminiClient: !!geminiClientRef.current });
     if (!inputText.trim() || !currentRoom || currentRoom === 'assessment') {
       console.log('❌ Early return: empty input or wrong room');
