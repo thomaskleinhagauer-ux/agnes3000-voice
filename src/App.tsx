@@ -452,8 +452,9 @@ function App() {
           return acc;
         }, []);
 
-      // Limit documents to prevent token overflow (max ~50k chars = ~12.5k tokens)
-      const MAX_DOC_CHARS = 50000;
+      // Build document context for caching (large docs benefit from prompt caching)
+      // Max 600k chars (~150k tokens) to stay under 200k total limit with room for messages
+      const MAX_DOC_CHARS = 600000;
       let docChars = 0;
       const relevantDocs = documents
         .filter(d => !d.isArchived)
@@ -467,13 +468,19 @@ function App() {
           return acc;
         }, []);
 
+      // Combine documents into cacheable context string
+      const cachedDocContext = relevantDocs.length > 0
+        ? `RELEVANTE DOKUMENTE (als Kontext):\n${relevantDocs.join('\n\n')}`
+        : '';
+
+      // Pass empty docs array - documents now handled separately via caching
       const systemPrompt = getSystemPrompt(
         currentRoom,
         settings.therapySchool,
         settings.user1Name,
         settings.user2Name,
         relevantStrategies,
-        relevantDocs,
+        [], // Documents passed via cachedContext for prompt caching
         currentRoom === 'paar' ? currentSpeaker : undefined,
         activeSession ? {
           remaining: sessionTimeRemaining || 0,
@@ -488,8 +495,8 @@ function App() {
       let fullResponse = '';
 
       if (settings.aiProvider === 'claude' && claudeClientRef.current) {
-        // Streaming response
-        for await (const chunk of claudeClientRef.current.streamText(systemPrompt, history)) {
+        // Streaming response with prompt caching for documents
+        for await (const chunk of claudeClientRef.current.streamText(systemPrompt, history, { cachedContext: cachedDocContext })) {
           fullResponse += chunk;
 
           // Aggressive TTS: play after sentence endings

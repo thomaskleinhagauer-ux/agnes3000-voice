@@ -286,7 +286,7 @@ export class ClaudeClient {
   async *streamText(
     systemPrompt: string,
     history: Message[],
-    options?: { maxTokens?: number }
+    options?: { maxTokens?: number; cachedContext?: string }
   ): AsyncGenerator<string, void, unknown> {
     try {
       const messages = history
@@ -296,10 +296,34 @@ export class ClaudeClient {
           content: msg.content,
         }));
 
+      // Build system prompt with caching for large static content
+      type SystemBlock = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } };
+      let systemBlocks: string | SystemBlock[];
+
+      if (options?.cachedContext && options.cachedContext.length > 4000) {
+        // Use prompt caching for large documents (min 1024 tokens ≈ 4000 chars)
+        systemBlocks = [
+          {
+            type: 'text' as const,
+            text: options.cachedContext,
+            cache_control: { type: 'ephemeral' as const }
+          },
+          {
+            type: 'text' as const,
+            text: systemPrompt
+          }
+        ];
+        console.log(`Using prompt caching for ${options.cachedContext.length} chars of context`);
+      } else {
+        systemBlocks = options?.cachedContext
+          ? options.cachedContext + '\n\n' + systemPrompt
+          : systemPrompt;
+      }
+
       const stream = this.client.messages.stream({
         model: this.model,
         max_tokens: options?.maxTokens || 4096,
-        system: systemPrompt,
+        system: systemBlocks,
         messages: messages.length > 0 ? messages : [{ role: 'user', content: 'Start' }],
       });
 
