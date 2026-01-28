@@ -1,73 +1,102 @@
-# React + TypeScript + Vite
+# IMAGO VOICE - Intelligente Paartherapie-Plattform
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+KI-gestützte Paartherapie-App basierend auf der IMAGO-Methode.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Paar-Raum**: Gemeinsame Therapiesitzungen mit AGNES-Schema
+- **Einzelräume**: Private Räume für Tom & Liisa mit parteiischer Unterstützung
+- **Assessment Center**: Psychologische Fragebögen mit KI-generierten Strategien
+- **Cloud-Sync**: Firebase-basierte Synchronisation zwischen Geräten
+- **Emotions-Erkennung**: Live Face-API Analyse während Sitzungen
+- **TTS/STT**: Spracheingabe und -ausgabe für natürliche Interaktion
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- React 19 + TypeScript + Vite
+- Anthropic Claude API (mit Prompt Caching)
+- Google Gemini API (TTS)
+- Firebase (Auth + Firestore)
+- Tailwind CSS
+- Face-API.js
 
-## Expanding the ESLint configuration
+## Setup
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Environment Variables (Vercel)
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
 ```
+VITE_ANTHROPIC_API_KEY=sk-ant-...
+VITE_GEMINI_API_KEY=...
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+```
+
+## Changelog
+
+### v1.3.0 (28.01.2026)
+- **Prompt Caching**: Große Dokumente werden gecacht (90% Token-Ersparnis)
+- **Token-Limit Fix**: Verhindert API-Fehler bei zu großem Kontext
+- **Strategien-Limit**: Max 30k Zeichen für Strategien
+- **Dokumente-Limit**: Max 600k Zeichen (~150k Tokens)
+
+### v1.2.0 (27.01.2026)
+- **Cloud-Sync**: Firebase Anonymous Auth aktiviert
+- **Passwort-Info entfernt**: Keine "Generalpasswort"-Hinweise mehr
+- **Claude Provider Fix**: Wechsel von Gemini zu Claude als Standard
+
+### v1.1.0
+- Assessment-Generierung
+- Sitzungs-Timer
+- Emotions-Avatar
+
+### v1.0.0
+- Initiale Version
+- Paar-Raum & Einzelräume
+- Basis-Chat mit KI
+
+## Architektur
+
+```
+src/
+├── App.tsx          # Hauptkomponente mit State Management
+├── ai.ts            # Claude & Gemini API Integration
+├── types.ts         # TypeScript Definitionen
+├── storage.ts       # LocalStorage & Export/Import
+├── firebase.ts      # Firebase Auth
+├── firebaseStorage.ts # Firestore Cloud-Sync
+└── emotionDetection.ts # Face-API Integration
+```
+
+## Prompt Caching
+
+Die App nutzt Anthropics Prompt Caching für große Dokumente:
+
+```typescript
+// Dokumente werden mit cache_control markiert
+system: [
+  {
+    type: 'text',
+    text: cachedContext, // Große Dokumente
+    cache_control: { type: 'ephemeral' }
+  },
+  {
+    type: 'text',
+    text: systemPrompt // Dynamischer Kontext
+  }
+]
+```
+
+Bei wiederholten Anfragen werden gecachte Tokens zu 90% reduziertem Preis berechnet.
+
+## License
+
+Private - All rights reserved
