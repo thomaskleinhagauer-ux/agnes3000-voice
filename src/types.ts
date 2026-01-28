@@ -5,7 +5,14 @@
 export type RoomType = 'paar' | 'tom' | 'lisa' | 'assessment';
 export type ViewType = 'rooms' | 'documents' | 'history' | 'settings' | 'messages' | 'backup';
 export type SpeakerType = 'tom' | 'lisa';
-export type EmotionType = 'neutral' | 'empathetic' | 'encouraging' | 'concerned' | 'thoughtful' | 'proud' | 'sad';
+// AI Response emotions (for therapist avatar)
+export type AIEmotionType = 'neutral' | 'empathetic' | 'encouraging' | 'concerned' | 'thoughtful' | 'proud' | 'sad';
+
+// Face-api detected emotions (for user camera)
+export type FaceEmotionType = 'angry' | 'disgusted' | 'fearful' | 'happy' | 'neutral' | 'sad' | 'surprised';
+
+// Combined emotion type for backward compatibility
+export type EmotionType = AIEmotionType;
 
 export interface Message {
   id: string;

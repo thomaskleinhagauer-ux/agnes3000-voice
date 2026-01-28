@@ -30,6 +30,17 @@ import {
   GENERAL_PASSWORD_CHECK
 } from './ai';
 
+import {
+  loadFaceApiModels,
+  detectEmotionFromVideo,
+  emotionToGerman,
+  getEmotionSummary,
+  FaceEmotionAnalysis,
+  FaceEmotion
+} from './emotionDetection';
+
+import { Avatar3D } from './Avatar3D';
+
 import { signInAnonymousUser } from './firebase';
 import { saveToFirebase, loadFromFirebase } from './firebaseStorage';
 
@@ -109,6 +120,9 @@ function App() {
   // Camera & Emotion Tracking
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [currentEmotionAnalysis, setCurrentEmotionAnalysis] = useState<EmotionAnalysis | null>(null);
+  const [faceEmotion, setFaceEmotion] = useState<FaceEmotionAnalysis | null>(null);
+  const [faceApiReady, setFaceApiReady] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   // Document Editor
   const [editingDoc, setEditingDoc] = useState<Document | null>(null);
@@ -204,19 +218,43 @@ function App() {
     };
   }, [activeSession, sessionTimeRemaining]);
 
-  // Emotion tracking interval - reduced frequency for better performance
+  // Load face-api models on mount
   useEffect(() => {
-    if (isCameraOn && settings.emotionTrackingEnabled && claudeClientRef.current) {
+    loadFaceApiModels().then(loaded => {
+      setFaceApiReady(loaded);
+      if (loaded) {
+        console.log('Face-api.js ready for emotion detection');
+      }
+    });
+  }, []);
+
+  // Emotion tracking interval using face-api.js - professional emotion detection
+  useEffect(() => {
+    if (isCameraOn && settings.emotionTrackingEnabled && faceApiReady && videoRef.current) {
       emotionIntervalRef.current = setInterval(async () => {
-        const analysis = await captureAndAnalyzeEmotion();
-        if (analysis) {
-          setCurrentEmotionAnalysis(analysis);
-          setAppState(prev => ({
-            ...prev,
-            emotionHistory: [analysis, ...prev.emotionHistory].slice(0, 100), // Reduced from 1000 to 100
-          }));
+        if (!videoRef.current) return;
+
+        // Use face-api.js for emotion detection (much faster and runs locally)
+        const faceAnalysis = await detectEmotionFromVideo(videoRef.current);
+        if (faceAnalysis) {
+          setFaceEmotion(faceAnalysis);
+
+          // Convert to legacy format for compatibility
+          if (faceAnalysis.faceDetected) {
+            const legacyAnalysis: EmotionAnalysis = {
+              tom: currentRoom === 'tom' || currentRoom === 'paar' ? {
+                emotion: faceAnalysis.dominant,
+                confidence: faceAnalysis.confidence,
+              } : undefined,
+              lisa: currentRoom === 'lisa' ? {
+                emotion: faceAnalysis.dominant,
+                confidence: faceAnalysis.confidence,
+              } : undefined,
+            };
+            setCurrentEmotionAnalysis(legacyAnalysis);
+          }
         }
-      }, 2000); // Every 2 seconds (reduced from 0.5s for better performance)
+      }, 500); // face-api.js is fast enough for 500ms intervals
     }
 
     return () => {
@@ -224,7 +262,7 @@ function App() {
         clearInterval(emotionIntervalRef.current);
       }
     };
-  }, [isCameraOn, settings.emotionTrackingEnabled]);
+  }, [isCameraOn, settings.emotionTrackingEnabled, faceApiReady, currentRoom]);
 
   // ================================
   // Helper Functions
@@ -487,8 +525,12 @@ function App() {
                   settings.voicePaar;
 
     try {
+      setIsSpeaking(true);
       const audioData = await geminiClientRef.current.generateTTS(text, voice);
-      if (!audioData) return;
+      if (!audioData) {
+        setIsSpeaking(false);
+        return;
+      }
 
       // iOS Fallback: Use HTMLAudioElement with user interaction handling
       if (isIOS) {
@@ -496,9 +538,11 @@ function App() {
           const base64 = btoa(String.fromCharCode(...audioData));
           const audio = new Audio(`data:audio/wav;base64,${base64}`);
           (audio as any).playsInline = true; // iOS attribute
+          audio.onended = () => setIsSpeaking(false);
           await audio.play();
         } catch (err) {
           console.error('iOS audio play error:', err);
+          setIsSpeaking(false);
           // iOS requires user interaction for audio - show toast once
           if ((err as Error).name === 'NotAllowedError') {
             showToast('Tippe auf den Bildschirm um Audio zu aktivieren', 'warning');
@@ -526,10 +570,12 @@ function App() {
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(ctx.destination);
+      source.onended = () => setIsSpeaking(false);
       source.start();
 
     } catch (error) {
       console.error('TTS error:', error);
+      setIsSpeaking(false);
     }
   }, [settings, currentRoom]);
 
@@ -555,11 +601,22 @@ function App() {
         recognition.interimResults = true;
 
         recognition.onresult = (event: SpeechRecognitionEvent) => {
-          let transcript = '';
+          let finalTranscript = '';
+          let interimTranscript = '';
+
           for (let i = event.resultIndex; i < event.results.length; i++) {
-            transcript += event.results[i][0].transcript;
+            const result = event.results[i];
+            if (result.isFinal) {
+              finalTranscript += result[0].transcript + ' ';
+            } else {
+              interimTranscript += result[0].transcript;
+            }
           }
-          setInputText(prev => prev + transcript);
+
+          // Only add final results to input, ignore interim to prevent duplicates
+          if (finalTranscript.trim()) {
+            setInputText(prev => prev + finalTranscript);
+          }
         };
 
         recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -1236,19 +1293,27 @@ Format:
                   </div>
                 </div>
 
-                {/* Avatar & Emotion Display */}
-                {currentEmotionAnalysis && (
+                {/* Avatar & Emotion Display - Professional face-api.js detection */}
+                {faceEmotion && faceEmotion.faceDetected && (
                   <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-b border-purple-200 px-4 py-2 flex items-center justify-center gap-4 text-sm">
-                    {currentEmotionAnalysis.tom && (
-                      <span className="bg-sky-100 text-sky-800 px-2 py-1 rounded">
-                        {settings.user1Name}: {currentEmotionAnalysis.tom.emotion}
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-purple-700">Erkannte Emotion:</span>
+                      <span className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full font-semibold">
+                        {emotionToGerman[faceEmotion.dominant]} ({Math.round(faceEmotion.confidence * 100)}%)
                       </span>
-                    )}
-                    {currentEmotionAnalysis.lisa && (
-                      <span className="bg-rose-100 text-rose-800 px-2 py-1 rounded">
-                        {settings.user2Name}: {currentEmotionAnalysis.lisa.emotion}
-                      </span>
-                    )}
+                    </div>
+                    {/* Secondary emotions */}
+                    <div className="flex gap-1 text-xs text-purple-600">
+                      {Object.entries(faceEmotion.all)
+                        .filter(([e, v]) => e !== faceEmotion.dominant && v > 0.15)
+                        .sort(([,a], [,b]) => b - a)
+                        .slice(0, 2)
+                        .map(([emotion, value]) => (
+                          <span key={emotion} className="bg-purple-50 px-2 py-0.5 rounded">
+                            {emotionToGerman[emotion as FaceEmotion]}: {Math.round(value * 100)}%
+                          </span>
+                        ))}
+                    </div>
                   </div>
                 )}
 
@@ -1256,7 +1321,12 @@ Format:
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
                   {messages[currentRoom]?.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-amber-400">
-                      <span className="text-5xl mb-3">{EMOTION_AVATARS[avatarEmotion]}</span>
+                      <Avatar3D
+                        emotion={faceEmotion?.dominant || 'neutral'}
+                        isSpeaking={isSpeaking}
+                        size="large"
+                        className="mb-3"
+                      />
                       <p className="font-serif text-lg">Raum ist bereit...</p>
                     </div>
                   ) : (
@@ -1283,7 +1353,15 @@ Format:
                           )}
                           {msg.role === 'assistant' && (
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="text-lg">{EMOTION_AVATARS[msg.emotion || 'neutral']}</span>
+                              <Avatar3D
+                                emotion={msg.emotion === 'empathetic' ? 'happy' :
+                                         msg.emotion === 'encouraging' ? 'happy' :
+                                         msg.emotion === 'concerned' ? 'sad' :
+                                         msg.emotion === 'thoughtful' ? 'neutral' :
+                                         msg.emotion === 'proud' ? 'happy' :
+                                         msg.emotion === 'sad' ? 'sad' : 'neutral'}
+                                size="small"
+                              />
                               <span className="text-xs font-bold text-amber-600">AGNES</span>
                             </div>
                           )}
@@ -1296,7 +1374,7 @@ Format:
                     <div className="flex justify-start">
                       <div className="bg-white shadow rounded-2xl px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-lg animate-pulse">{EMOTION_AVATARS[avatarEmotion]}</span>
+                          <Avatar3D emotion="neutral" isSpeaking={true} size="small" />
                           <span className="text-amber-600">tippt...</span>
                         </div>
                       </div>
