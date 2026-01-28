@@ -48,8 +48,6 @@ import { saveToFirebase, loadFromFirebase } from './firebaseStorage';
 // Constants
 // ================================
 
-const HARDCODED_ARCHIVE_PASSWORD = 'Dominikanergasse';
-
 // iOS Detection for TTS fallback
 const isIOS = (() => {
   const ua = navigator.userAgent;
@@ -158,14 +156,13 @@ function App() {
     saveToLocalStorage(appState);
   }, [appState]);
 
-  // Initialize AI clients
+  // Initialize AI clients - always try to init, clients handle env var fallback
   useEffect(() => {
-    if (settings.aiProvider === 'claude' && settings.claudeApiKey) {
-      claudeClientRef.current = new ClaudeClient(settings.claudeApiKey, settings.claudeModel);
+    if (settings.aiProvider === 'claude') {
+      claudeClientRef.current = new ClaudeClient(settings.claudeApiKey || 'agnes3001', settings.claudeModel);
     }
-    if (settings.geminiApiKey) {
-      geminiClientRef.current = new GeminiClient(settings.geminiApiKey);
-    }
+    // Always init Gemini for TTS
+    geminiClientRef.current = new GeminiClient(settings.geminiApiKey || 'agnes3001');
   }, [settings.aiProvider, settings.claudeApiKey, settings.claudeModel, settings.geminiApiKey]);
 
   // Check for restore flag on mount
@@ -178,22 +175,34 @@ function App() {
     }
   }, []);
 
-  // Initialize Firebase
+  // Initialize Firebase with retry
   useEffect(() => {
-    const initFirebase = async () => {
-      const oderId = await signInAnonymousUser();
-      if (oderId) {
-        setFirebaseUserId(oderId);
-        // Try to load from Firebase
-        const remoteData = await loadFromFirebase(oderId);
-        if (remoteData) {
-          setAppState(prev => ({
-            ...prev,
-            ...remoteData,
-            settings: { ...prev.settings, ...remoteData.settings },
-          }));
+    const initFirebase = async (retries = 3) => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const userId = await signInAnonymousUser();
+          if (userId) {
+            setFirebaseUserId(userId);
+            // Try to load from Firebase
+            const remoteData = await loadFromFirebase(userId);
+            if (remoteData) {
+              setAppState(prev => ({
+                ...prev,
+                ...remoteData,
+                settings: { ...prev.settings, ...remoteData.settings },
+              }));
+            }
+            return; // Success
+          }
+        } catch (error) {
+          console.error(`Firebase init attempt ${i + 1} failed:`, error);
+        }
+        // Wait before retry (exponential backoff)
+        if (i < retries - 1) {
+          await new Promise(r => setTimeout(r, 1000 * (i + 1)));
         }
       }
+      console.warn('Firebase init failed after retries');
     };
     initFirebase();
   }, []);
@@ -287,9 +296,8 @@ function App() {
   // ================================
 
   const checkPassword = useCallback((room: RoomType, inputPw: string): boolean => {
-    // General password works for all rooms
+    // General password works for all rooms (dev-only)
     if (inputPw === GENERAL_PASSWORD_CHECK) return true;
-    if (inputPw === HARDCODED_ARCHIVE_PASSWORD) return true;
 
     // Room-specific passwords
     if (room === 'paar') return !settings.paarRoomPassword || inputPw === settings.paarRoomPassword;
@@ -2069,16 +2077,6 @@ Format:
                     </div>
                   </div>
 
-                  {/* Password Info */}
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                    <h3 className="font-bold text-amber-900 mb-2">🔐 Passwort-Info</h3>
-                    <p className="text-sm text-amber-700">
-                      <strong>Generalpasswort:</strong> "Dominikanergasse" funktioniert für alle Räume.
-                    </p>
-                    <p className="text-sm text-amber-700 mt-1">
-                      Persönliche Passwörter werden beim Assessment erstellt.
-                    </p>
-                  </div>
                 </div>
               </div>
             )}
@@ -2178,9 +2176,6 @@ Format:
               <p className="text-sm text-purple-600">
                 Erstellen Sie ein <strong>persönliches Passwort</strong> für{' '}
                 <strong>{assessmentPerson === 'tom' ? settings.user1Name : settings.user2Name}</strong>'s Einzelraum.
-              </p>
-              <p className="text-xs text-purple-500 mt-2">
-                Das Generalpasswort "Dominikanergasse" funktioniert weiterhin.
               </p>
             </div>
             <input

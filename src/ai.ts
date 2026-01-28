@@ -247,8 +247,8 @@ export class ClaudeClient {
   private model: string;
 
   constructor(apiKey: string, model: string = 'claude-opus-4-5-20251101') {
-    // Use hardcoded key if provided key matches pattern
-    const actualKey = apiKey === HARDCODED_API_KEY
+    // Use env var if key is placeholder or empty
+    const actualKey = (apiKey === HARDCODED_API_KEY || !apiKey)
       ? import.meta.env.VITE_ANTHROPIC_API_KEY || apiKey
       : apiKey;
 
@@ -370,13 +370,16 @@ export class GeminiClient {
   private apiKey: string;
 
   constructor(apiKey: string) {
-    this.apiKey = apiKey;
+    // Use env var if key is placeholder or empty
+    this.apiKey = (apiKey === HARDCODED_API_KEY || !apiKey)
+      ? import.meta.env.VITE_GEMINI_API_KEY || apiKey
+      : apiKey;
   }
 
   async generateTTS(text: string, voice: string = 'Zephyr'): Promise<Uint8Array | null> {
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -433,7 +436,7 @@ export class GeminiClient {
       }
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

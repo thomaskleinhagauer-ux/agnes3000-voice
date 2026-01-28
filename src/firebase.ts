@@ -31,10 +31,15 @@ export const initializeFirebase = (): { app: FirebaseApp; db: Firestore; auth: A
 export const signInAnonymousUser = async (): Promise<string | null> => {
   try {
     const { auth } = initializeFirebase();
+    // Check if already signed in
+    if (auth.currentUser) {
+      return auth.currentUser.uid;
+    }
     const result = await signInAnonymously(auth);
     return result.user.uid;
-  } catch (error) {
-    console.error('Firebase anonymous sign-in failed:', error);
+  } catch (error: unknown) {
+    const firebaseError = error as { code?: string; message?: string };
+    console.error('Firebase anonymous sign-in failed:', firebaseError.code, firebaseError.message);
     return null;
   }
 };
