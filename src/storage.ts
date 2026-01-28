@@ -71,11 +71,31 @@ export const loadFromLocalStorage = (): AppState => {
   return defaultAppState;
 };
 
-export const saveToLocalStorage = (state: AppState): void => {
+export const saveToLocalStorage = (state: AppState): boolean => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return true;
   } catch (error) {
     console.error('Failed to save to localStorage:', error);
+    // Check if it's a quota exceeded error
+    if (error instanceof DOMException && (
+      error.name === 'QuotaExceededError' ||
+      error.name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    )) {
+      // Try to clear some space by removing old emotion history
+      try {
+        const reducedState = {
+          ...state,
+          emotionHistory: state.emotionHistory.slice(0, 100), // Keep only last 100
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(reducedState));
+        console.log('Reduced emotion history to save space');
+        return true;
+      } catch {
+        console.error('Still unable to save - localStorage full');
+      }
+    }
+    return false;
   }
 };
 

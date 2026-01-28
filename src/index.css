@@ -75,6 +75,24 @@ button {
   user-select: none;
 }
 
+/* iOS minimum touch target size */
+@media screen and (max-width: 768px) {
+  button,
+  [role="button"],
+  a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* iOS safe area for full-height containers */
+.safe-area-container {
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
+}
+
 /* Fix for iOS input zoom */
 @media screen and (max-width: 768px) {
   input[type="text"],

@@ -484,11 +484,20 @@ function App() {
       const audioData = await geminiClientRef.current.generateTTS(text, voice);
       if (!audioData) return;
 
-      // iOS Fallback: Use HTMLAudioElement
+      // iOS Fallback: Use HTMLAudioElement with user interaction handling
       if (isIOS) {
-        const base64 = btoa(String.fromCharCode(...audioData));
-        const audio = new Audio(`data:audio/wav;base64,${base64}`);
-        audio.play().catch(err => console.error('iOS audio play error:', err));
+        try {
+          const base64 = btoa(String.fromCharCode(...audioData));
+          const audio = new Audio(`data:audio/wav;base64,${base64}`);
+          audio.playsInline = true;
+          await audio.play();
+        } catch (err) {
+          console.error('iOS audio play error:', err);
+          // iOS requires user interaction for audio - show toast once
+          if ((err as Error).name === 'NotAllowedError') {
+            showToast('Tippe auf den Bildschirm um Audio zu aktivieren', 'warning');
+          }
+        }
         return;
       }
 
@@ -527,11 +536,16 @@ function App() {
       recognitionRef.current?.stop();
       setIsRecording(false);
     } else {
+      // iOS Safari warning - Web Speech API has limited support
+      if (isIOS) {
+        showToast('Spracherkennung auf iOS eingeschränkt - bitte Safari verwenden', 'warning');
+      }
+
       if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
         const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
         const recognition = new SpeechRecognition();
         recognition.lang = 'de-DE';
-        recognition.continuous = true;
+        recognition.continuous = !isIOS; // iOS doesn't support continuous well
         recognition.interimResults = true;
 
         recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -544,12 +558,17 @@ function App() {
 
         recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
           console.error('Speech recognition error:', event.error);
+          if (event.error === 'not-allowed') {
+            showToast('Mikrofon-Zugriff verweigert', 'error');
+          }
           setIsRecording(false);
         };
 
         recognition.onend = () => {
-          if (isRecording) {
-            recognition.start(); // Continue recording
+          if (isRecording && !isIOS) {
+            recognition.start(); // Continue recording (not on iOS)
+          } else {
+            setIsRecording(false);
           }
         };
 
@@ -557,7 +576,7 @@ function App() {
         recognition.start();
         setIsRecording(true);
       } else {
-        showToast('Spracherkennung nicht unterstützt', 'error');
+        showToast('Spracherkennung nicht unterstützt - bitte Chrome oder Safari verwenden', 'error');
       }
     }
   }, [isRecording, showToast]);
@@ -956,10 +975,16 @@ Format:
       <Toaster position="top-center" />
 
       {/* Hidden video and canvas for emotion tracking */}
-      <video ref={videoRef} className="hidden" />
+      <video
+        ref={videoRef}
+        className="hidden"
+        autoPlay
+        playsInline
+        muted
+      />
       <canvas ref={canvasRef} className="hidden" />
 
-      <div className="flex h-screen">
+      <div className="flex h-screen safe-area-top safe-area-bottom">
         {/* Sidebar - Desktop */}
         <div className="hidden md:flex w-64 bg-white/80 backdrop-blur border-r border-amber-200 flex-col">
           {/* Logo */}
