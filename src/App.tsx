@@ -415,11 +415,17 @@ function App() {
   // ================================
 
   const sendMessage = useCallback(async () => {
-    if (!inputText.trim() || !currentRoom || currentRoom === 'assessment') return;
+    console.log('🚀 sendMessage called!', { inputText, currentRoom, hasClaudeClient: !!claudeClientRef.current, hasGeminiClient: !!geminiClientRef.current });
+    if (!inputText.trim() || !currentRoom || currentRoom === 'assessment') {
+      console.log('❌ Early return: empty input or wrong room');
+      return;
+    }
     if (!claudeClientRef.current && !geminiClientRef.current) {
+      console.log('❌ No AI client available');
       showToast('Bitte API-Key in Einstellungen eingeben', 'error');
       return;
     }
+    console.log('✅ Proceeding with AI request...');
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -495,8 +501,10 @@ function App() {
       let fullResponse = '';
 
       if (settings.aiProvider === 'claude' && claudeClientRef.current) {
+        console.log('📡 Starting Claude streaming request...');
         // Streaming response with prompt caching for documents
         for await (const chunk of claudeClientRef.current.streamText(systemPrompt, history, { cachedContext: cachedDocContext })) {
+          console.log('📥 Received chunk:', chunk.substring(0, 50));
           fullResponse += chunk;
 
           // Aggressive TTS: play after sentence endings
