@@ -417,8 +417,9 @@ export class GeminiClient {
 
   async generateTTS(text: string, voice: string = 'Zephyr'): Promise<Uint8Array | null> {
     try {
+      // Use gemini-2.0-flash-exp for TTS (supports audio output)
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${this.apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
