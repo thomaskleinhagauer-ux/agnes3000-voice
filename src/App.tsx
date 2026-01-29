@@ -158,11 +158,18 @@ function App() {
 
   // Initialize AI clients - always try to init, clients handle env var fallback
   useEffect(() => {
-    if (settings.aiProvider === 'claude') {
-      claudeClientRef.current = new ClaudeClient(settings.claudeApiKey || 'agnes3001', settings.claudeModel);
+    try {
+      if (settings.aiProvider === 'claude') {
+        claudeClientRef.current = new ClaudeClient(settings.claudeApiKey || 'agnes3001', settings.claudeModel);
+        console.log('✅ Claude client initialized');
+      }
+      // Always init Gemini for TTS
+      geminiClientRef.current = new GeminiClient(settings.geminiApiKey || 'agnes3001');
+      console.log('✅ Gemini client initialized');
+    } catch (error) {
+      console.error('❌ AI client init error:', error);
+      toast.error('AI-Client konnte nicht initialisiert werden: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
     }
-    // Always init Gemini for TTS
-    geminiClientRef.current = new GeminiClient(settings.geminiApiKey || 'agnes3001');
   }, [settings.aiProvider, settings.claudeApiKey, settings.claudeModel, settings.geminiApiKey]);
 
   // Check for restore flag on mount
@@ -416,16 +423,20 @@ function App() {
 
   const sendMessage = useCallback(async () => {
     console.log('🚀 sendMessage called!', { inputText, currentRoom, hasClaudeClient: !!claudeClientRef.current, hasGeminiClient: !!geminiClientRef.current });
+    // Debug toast to confirm function is called
+    toast('📤 Sende...', { duration: 1000 });
+
     if (!inputText.trim() || !currentRoom || currentRoom === 'assessment') {
       console.log('❌ Early return: empty input or wrong room');
       return;
     }
     if (!claudeClientRef.current && !geminiClientRef.current) {
       console.log('❌ No AI client available');
-      showToast('Bitte API-Key in Einstellungen eingeben', 'error');
+      toast.error('❌ Kein AI-Client! Claude: ' + !!claudeClientRef.current + ', Gemini: ' + !!geminiClientRef.current);
       return;
     }
     console.log('✅ Proceeding with AI request...');
+    toast('🤖 AI-Request startet...', { duration: 2000 });
     console.log('Provider:', settings.aiProvider, 'Model:', settings.claudeModel);
 
     const userMessage: Message = {
