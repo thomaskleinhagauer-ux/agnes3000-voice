@@ -422,9 +422,10 @@ function App() {
   // ================================
 
   const sendMessage = useCallback(async () => {
+    // CRITICAL DEBUG: Show alert to confirm function runs
+    alert('sendMessage called! Claude: ' + !!claudeClientRef.current + ', Gemini: ' + !!geminiClientRef.current);
+
     console.log('🚀 sendMessage called!', { inputText, currentRoom, hasClaudeClient: !!claudeClientRef.current, hasGeminiClient: !!geminiClientRef.current });
-    // Debug toast to confirm function is called
-    toast('📤 Sende...', { duration: 1000 });
 
     if (!inputText.trim() || !currentRoom || currentRoom === 'assessment') {
       console.log('❌ Early return: empty input or wrong room');
@@ -432,11 +433,10 @@ function App() {
     }
     if (!claudeClientRef.current && !geminiClientRef.current) {
       console.log('❌ No AI client available');
-      toast.error('❌ Kein AI-Client! Claude: ' + !!claudeClientRef.current + ', Gemini: ' + !!geminiClientRef.current);
+      alert('ERROR: No AI client! Claude: ' + !!claudeClientRef.current + ', Gemini: ' + !!geminiClientRef.current);
       return;
     }
     console.log('✅ Proceeding with AI request...');
-    toast('🤖 AI-Request startet...', { duration: 2000 });
     console.log('Provider:', settings.aiProvider, 'Model:', settings.claudeModel);
 
     const userMessage: Message = {
@@ -513,27 +513,18 @@ function App() {
       let fullResponse = '';
 
       console.log('🔀 Provider check:', { provider: settings.aiProvider, hasClaude: !!claudeClientRef.current, hasGemini: !!geminiClientRef.current });
-      if (settings.aiProvider === 'claude' && claudeClientRef.current) {
-        console.log('📡 Starting Claude streaming request...');
-        // Streaming response with prompt caching for documents
-        for await (const chunk of claudeClientRef.current.streamText(systemPrompt, history, { cachedContext: cachedDocContext })) {
-          console.log('📥 Received chunk:', chunk.substring(0, 50));
-          fullResponse += chunk;
 
-          // Aggressive TTS: play after sentence endings
-          if (settings.ttsEnabled && geminiClientRef.current) {
-            const sentences = fullResponse.split(/(?<=[.!?\n])/);
-            if (sentences.length > 1) {
-              const completeSentence = sentences.slice(0, -1).join('');
-              if (completeSentence.trim()) {
-                playTTS(completeSentence);
-                fullResponse = sentences[sentences.length - 1];
-              }
-            }
-          }
+      // TEMPORARY: Use non-streaming for debugging
+      if (settings.aiProvider === 'claude' && claudeClientRef.current) {
+        console.log('📡 Starting Claude NON-streaming request...');
+        try {
+          fullResponse = await claudeClientRef.current.generateText(systemPrompt, history);
+          console.log('✅ Claude response received, length:', fullResponse.length);
+        } catch (claudeError) {
+          console.error('❌ Claude generateText error:', claudeError);
+          throw claudeError;
         }
 
-        // Play remaining text
         if (settings.ttsEnabled && fullResponse.trim() && geminiClientRef.current) {
           playTTS(fullResponse);
         }
