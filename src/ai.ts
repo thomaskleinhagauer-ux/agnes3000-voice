@@ -327,9 +327,13 @@ export class ClaudeClient {
         messages: messages.length > 0 ? messages : [{ role: 'user', content: 'Start' }],
       });
 
+      // Iterate over stream events and extract text deltas
       for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-          yield event.delta.text;
+        if (event.type === 'content_block_delta') {
+          const delta = event.delta as { type: string; text?: string };
+          if (delta.type === 'text_delta' && delta.text) {
+            yield delta.text;
+          }
         }
       }
     } catch (error) {
