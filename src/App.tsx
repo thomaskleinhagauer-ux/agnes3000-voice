@@ -158,18 +158,11 @@ function App() {
 
   // Initialize AI clients - always try to init, clients handle env var fallback
   useEffect(() => {
-    try {
-      if (settings.aiProvider === 'claude') {
-        claudeClientRef.current = new ClaudeClient(settings.claudeApiKey || 'agnes3001', settings.claudeModel);
-        console.log('✅ Claude client initialized');
-      }
-      // Always init Gemini for TTS
-      geminiClientRef.current = new GeminiClient(settings.geminiApiKey || 'agnes3001');
-      console.log('✅ Gemini client initialized');
-    } catch (error) {
-      console.error('❌ AI client init error:', error);
-      toast.error('AI-Client konnte nicht initialisiert werden: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
+    if (settings.aiProvider === 'claude') {
+      claudeClientRef.current = new ClaudeClient(settings.claudeApiKey || 'agnes3001', settings.claudeModel);
     }
+    // Always init Gemini for TTS
+    geminiClientRef.current = new GeminiClient(settings.geminiApiKey || 'agnes3001');
   }, [settings.aiProvider, settings.claudeApiKey, settings.claudeModel, settings.geminiApiKey]);
 
   // Check for restore flag on mount
@@ -422,22 +415,11 @@ function App() {
   // ================================
 
   const sendMessage = useCallback(async () => {
-    // CRITICAL DEBUG: Show alert to confirm function runs
-    alert('sendMessage called! Claude: ' + !!claudeClientRef.current + ', Gemini: ' + !!geminiClientRef.current);
-
-    console.log('🚀 sendMessage called!', { inputText, currentRoom, hasClaudeClient: !!claudeClientRef.current, hasGeminiClient: !!geminiClientRef.current });
-
-    if (!inputText.trim() || !currentRoom || currentRoom === 'assessment') {
-      console.log('❌ Early return: empty input or wrong room');
-      return;
-    }
+    if (!inputText.trim() || !currentRoom || currentRoom === 'assessment') return;
     if (!claudeClientRef.current && !geminiClientRef.current) {
-      console.log('❌ No AI client available');
-      alert('ERROR: No AI client! Claude: ' + !!claudeClientRef.current + ', Gemini: ' + !!geminiClientRef.current);
+      showToast('Bitte API-Key in Einstellungen eingeben', 'error');
       return;
     }
-    console.log('✅ Proceeding with AI request...');
-    console.log('Provider:', settings.aiProvider, 'Model:', settings.claudeModel);
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -512,33 +494,18 @@ function App() {
 
       let fullResponse = '';
 
-      console.log('🔀 Provider check:', { provider: settings.aiProvider, hasClaude: !!claudeClientRef.current, hasGemini: !!geminiClientRef.current });
-
-      // TEMPORARY: Use non-streaming for debugging
+      // Use non-streaming API for reliability (streaming had issues with SDK v0.71)
       if (settings.aiProvider === 'claude' && claudeClientRef.current) {
-        console.log('📡 Starting Claude NON-streaming request...');
-        try {
-          fullResponse = await claudeClientRef.current.generateText(systemPrompt, history);
-          console.log('✅ Claude response received, length:', fullResponse.length);
-        } catch (claudeError) {
-          console.error('❌ Claude generateText error:', claudeError);
-          throw claudeError;
-        }
-
+        fullResponse = await claudeClientRef.current.generateText(systemPrompt, history);
         if (settings.ttsEnabled && fullResponse.trim() && geminiClientRef.current) {
           playTTS(fullResponse);
         }
       } else if (geminiClientRef.current) {
-        console.log('📡 Using Gemini instead of Claude');
         fullResponse = await geminiClientRef.current.generateText(systemPrompt, history);
         if (settings.ttsEnabled) {
           playTTS(fullResponse);
         }
-      } else {
-        console.log('❌ No AI client available for request!');
       }
-
-      console.log('📝 Full response length:', fullResponse.length, 'Preview:', fullResponse.substring(0, 100));
       // Extract emotion and clean response
       const emotion = extractEmotion(fullResponse);
       const cleanResponse = removeEmotionTag(fullResponse);
