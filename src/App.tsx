@@ -103,6 +103,7 @@ function App() {
 
   // Session
   const [activeSession, setActiveSession] = useState<SessionMetadata | null>(null);
+  const [showSessionModal, setShowSessionModal] = useState(false);
   const [sessionGoal, setSessionGoal] = useState('');
   const [sessionDuration, setSessionDuration] = useState(45);
   const [sessionTimeRemaining, setSessionTimeRemaining] = useState<number | null>(null);
@@ -137,6 +138,7 @@ function App() {
 
   // Document Editor
   const [editingDoc, setEditingDoc] = useState<Document | null>(null);
+  const [showDocEditor, setShowDocEditor] = useState(false);
   const [docTitle, setDocTitle] = useState('');
   const [docContent, setDocContent] = useState('');
 
@@ -155,6 +157,7 @@ function App() {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [showOptimizationReport, setShowOptimizationReport] = useState(false);
   const [selectedBackpack, setSelectedBackpack] = useState<number | null>(null);
+  const [aiAnalysisResult, setAiAnalysisResult] = useState<string | null>(null);
 
   // Refs
   const claudeClientRef = useRef<ClaudeClient | null>(null);
@@ -165,6 +168,7 @@ function App() {
   const emotionIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const isRecordingRef = useRef(false);
 
   // Destructure settings for convenience
   const { settings, messages, documents, strategies, sessions, roomMessages } = appState;
@@ -433,131 +437,7 @@ function App() {
   }, [activeSession, currentRoom, messages, showToast]);
 
   // ================================
-  // AI Chat
-  // ================================
-
-  const sendMessage = useCallback(async () => {
-    if (!inputText.trim() || !currentRoom || currentRoom === 'assessment') return;
-    if (!claudeClientRef.current && !geminiClientRef.current) {
-      showToast('Bitte API-Key in Einstellungen eingeben', 'error');
-      return;
-    }
-
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: inputText.trim(),
-      timestamp: Date.now(),
-      speaker: currentRoom === 'paar' ? currentSpeaker : undefined,
-    };
-
-    setAppState(prev => ({
-      ...prev,
-      messages: addMessage(prev.messages, currentRoom, userMessage),
-    }));
-    setInputText('');
-    setIsLoading(true);
-
-    try {
-      // Build context
-      // Limit strategies to prevent token overflow (max ~30k chars = ~7.5k tokens)
-      const MAX_STRATEGY_CHARS = 30000;
-      let stratChars = 0;
-      const relevantStrategies = strategies
-        .filter(s => currentRoom === 'paar' || s.person === (currentRoom as 'tom' | 'lisa'))
-        .sort((a, b) => b.updatedAt - a.updatedAt) // newest first
-        .reduce((acc: string[], s) => {
-          if (stratChars + s.content.length <= MAX_STRATEGY_CHARS) {
-            stratChars += s.content.length;
-            acc.push(s.content);
-          }
-          return acc;
-        }, []);
-
-      // Build document context for caching (large docs benefit from prompt caching)
-      // Max 600k chars (~150k tokens) to stay under 200k total limit with room for messages
-      const MAX_DOC_CHARS = 600000;
-      let docChars = 0;
-      const relevantDocs = documents
-        .filter(d => !d.isArchived)
-        .sort((a, b) => b.updatedAt - a.updatedAt) // newest first
-        .reduce((acc: string[], d) => {
-          const docText = `[${d.title}]\n${d.content}`;
-          if (docChars + docText.length <= MAX_DOC_CHARS) {
-            docChars += docText.length;
-            acc.push(docText);
-          }
-          return acc;
-        }, []);
-
-      // Combine documents into cacheable context string
-      const cachedDocContext = relevantDocs.length > 0
-        ? `RELEVANTE DOKUMENTE (als Kontext):\n${relevantDocs.join('\n\n')}`
-        : '';
-
-      // Pass empty docs array - documents now handled separately via caching
-      const systemPrompt = getSystemPrompt(
-        currentRoom,
-        settings.therapySchool,
-        settings.user1Name,
-        settings.user2Name,
-        relevantStrategies,
-        [], // Documents passed via cachedContext for prompt caching
-        currentRoom === 'paar' ? currentSpeaker : undefined,
-        activeSession ? {
-          remaining: sessionTimeRemaining || 0,
-          total: activeSession.duration,
-          goal: activeSession.goal || '',
-        } : undefined,
-        currentEmotionAnalysis || undefined
-      );
-
-      const history = [...(messages[currentRoom] || []), userMessage];
-
-      let fullResponse = '';
-
-      // Use non-streaming API for reliability (streaming had issues with SDK v0.71)
-      if (settings.aiProvider === 'claude' && claudeClientRef.current) {
-        fullResponse = await claudeClientRef.current.generateText(systemPrompt, history);
-        if (settings.ttsEnabled && fullResponse.trim() && geminiClientRef.current) {
-          playTTS(fullResponse);
-        }
-      } else if (geminiClientRef.current) {
-        fullResponse = await geminiClientRef.current.generateText(systemPrompt, history);
-        if (settings.ttsEnabled) {
-          playTTS(fullResponse);
-        }
-      }
-      // Extract emotion and clean response
-      const emotion = extractEmotion(fullResponse);
-      const cleanResponse = removeEmotionTag(fullResponse);
-      setAvatarEmotion(emotion);
-
-      const aiMessage: Message = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: cleanResponse,
-        timestamp: Date.now(),
-        emotion,
-      };
-
-      setAppState(prev => ({
-        ...prev,
-        messages: addMessage(prev.messages, currentRoom, aiMessage),
-      }));
-
-    } catch (error) {
-      console.error('❌ AI error:', error);
-      console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-      showToast('Fehler: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'), 'error');
-    } finally {
-      console.log('🏁 sendMessage finished');
-      setIsLoading(false);
-    }
-  }, [inputText, currentRoom, currentSpeaker, settings, messages, strategies, documents, activeSession, sessionTimeRemaining, currentEmotionAnalysis, showToast]);
-
-  // ================================
-  // TTS
+  // TTS (before sendMessage so it can be used as dependency)
   // ================================
 
   const playTTS = useCallback(async (text: string) => {
@@ -621,7 +501,126 @@ function App() {
       console.error('TTS error:', error);
       setIsSpeaking(false);
     }
-  }, [settings, currentRoom]);
+  }, [settings, currentRoom, showToast]);
+
+  // ================================
+  // AI Chat
+  // ================================
+
+  const sendMessage = useCallback(async () => {
+    if (!inputText.trim() || !currentRoom || currentRoom === 'assessment') return;
+    if (!claudeClientRef.current && !geminiClientRef.current) {
+      showToast('Bitte API-Key in Einstellungen eingeben', 'error');
+      return;
+    }
+
+    const userMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: inputText.trim(),
+      timestamp: Date.now(),
+      speaker: currentRoom === 'paar' ? currentSpeaker : undefined,
+    };
+
+    setAppState(prev => ({
+      ...prev,
+      messages: addMessage(prev.messages, currentRoom, userMessage),
+    }));
+    setInputText('');
+    setIsLoading(true);
+
+    try {
+      // Build context
+      // Limit strategies to prevent token overflow (max ~30k chars = ~7.5k tokens)
+      const MAX_STRATEGY_CHARS = 30000;
+      let stratChars = 0;
+      const relevantStrategies = strategies
+        .filter(s => currentRoom === 'paar' || s.person === (currentRoom as 'tom' | 'lisa'))
+        .sort((a, b) => b.updatedAt - a.updatedAt) // newest first
+        .reduce((acc: string[], s) => {
+          if (stratChars + s.content.length <= MAX_STRATEGY_CHARS) {
+            stratChars += s.content.length;
+            acc.push(s.content);
+          }
+          return acc;
+        }, []);
+
+      // Build document context for caching (large docs benefit from prompt caching)
+      // Max 600k chars (~150k tokens) to stay under 200k total limit with room for messages
+      const MAX_DOC_CHARS = 600000;
+      let docChars = 0;
+      const relevantDocs = documents
+        .filter(d => !d.isArchived)
+        .sort((a, b) => b.updatedAt - a.updatedAt) // newest first
+        .reduce((acc: string[], d) => {
+          const docText = `[${d.title}]\n${d.content}`;
+          if (docChars + docText.length <= MAX_DOC_CHARS) {
+            docChars += docText.length;
+            acc.push(docText);
+          }
+          return acc;
+        }, []);
+
+      // Pass document contents to system prompt so AI has context
+      const systemPrompt = getSystemPrompt(
+        currentRoom,
+        settings.therapySchool,
+        settings.user1Name,
+        settings.user2Name,
+        relevantStrategies,
+        relevantDocs, // Documents as context for AI
+        currentRoom === 'paar' ? currentSpeaker : undefined,
+        activeSession ? {
+          remaining: sessionTimeRemaining || 0,
+          total: activeSession.duration,
+          goal: activeSession.goal || '',
+        } : undefined,
+        currentEmotionAnalysis || undefined
+      );
+
+      const history = [...(messages[currentRoom] || []), userMessage];
+
+      let fullResponse = '';
+
+      // Use non-streaming API for reliability (streaming had issues with SDK v0.71)
+      if (settings.aiProvider === 'claude' && claudeClientRef.current) {
+        fullResponse = await claudeClientRef.current.generateText(systemPrompt, history);
+        if (settings.ttsEnabled && fullResponse.trim() && geminiClientRef.current) {
+          playTTS(fullResponse);
+        }
+      } else if (geminiClientRef.current) {
+        fullResponse = await geminiClientRef.current.generateText(systemPrompt, history);
+        if (settings.ttsEnabled) {
+          playTTS(fullResponse);
+        }
+      }
+      // Extract emotion and clean response
+      const emotion = extractEmotion(fullResponse);
+      const cleanResponse = removeEmotionTag(fullResponse);
+      setAvatarEmotion(emotion);
+
+      const aiMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: cleanResponse,
+        timestamp: Date.now(),
+        emotion,
+      };
+
+      setAppState(prev => ({
+        ...prev,
+        messages: addMessage(prev.messages, currentRoom, aiMessage),
+      }));
+
+    } catch (error) {
+      console.error('❌ AI error:', error);
+      console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+      showToast('Fehler: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'), 'error');
+    } finally {
+      console.log('🏁 sendMessage finished');
+      setIsLoading(false);
+    }
+  }, [inputText, currentRoom, currentSpeaker, settings, messages, strategies, documents, activeSession, sessionTimeRemaining, currentEmotionAnalysis, showToast, playTTS]);
 
   // ================================
   // Speech Recognition (STT)
@@ -629,6 +628,7 @@ function App() {
 
   const toggleRecording = useCallback(() => {
     if (isRecording) {
+      isRecordingRef.current = false;
       recognitionRef.current?.stop();
       setIsRecording(false);
     } else {
@@ -646,14 +646,11 @@ function App() {
 
         recognition.onresult = (event: SpeechRecognitionEvent) => {
           let finalTranscript = '';
-          let interimTranscript = '';
 
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
             if (result.isFinal) {
               finalTranscript += result[0].transcript + ' ';
-            } else {
-              interimTranscript += result[0].transcript;
             }
           }
 
@@ -668,19 +665,23 @@ function App() {
           if (event.error === 'not-allowed') {
             showToast('Mikrofon-Zugriff verweigert', 'error');
           }
+          isRecordingRef.current = false;
           setIsRecording(false);
         };
 
         recognition.onend = () => {
-          if (isRecording && !isIOS) {
+          // Use ref to avoid stale closure - isRecording state would be stale here
+          if (isRecordingRef.current && !isIOS) {
             recognition.start(); // Continue recording (not on iOS)
           } else {
+            isRecordingRef.current = false;
             setIsRecording(false);
           }
         };
 
         recognitionRef.current = recognition;
         recognition.start();
+        isRecordingRef.current = true;
         setIsRecording(true);
       } else {
         showToast('Spracherkennung nicht unterstützt - bitte Chrome oder Safari verwenden', 'error');
@@ -905,6 +906,7 @@ function App() {
     }
 
     setEditingDoc(null);
+    setShowDocEditor(false);
     setDocTitle('');
     setDocContent('');
     showToast('Dokument gespeichert', 'success');
@@ -1028,15 +1030,12 @@ Format:
     const stats = calculateKnowledgeStats(appState);
     setKnowledgeStats(stats);
 
-    if (stats.needsOptimization) {
-      const bps = splitIntoBackpacks(appState);
-      setBackpacks(bps);
-      const dups = findDuplicates(appState);
-      setDuplicates(dups);
-    } else {
-      setBackpacks([]);
-      setDuplicates([]);
-    }
+    // Always calculate backpacks and duplicates so user can see structure
+    const bps = splitIntoBackpacks(appState);
+    setBackpacks(bps);
+    const dups = findDuplicates(appState);
+    setDuplicates(dups);
+    setAiAnalysisResult(null);
   }, [appState]);
 
   const runOptimization = useCallback(async () => {
@@ -1076,28 +1075,25 @@ Format:
   const runAIAnalysis = useCallback(async (backpackId: number) => {
     const backpack = backpacks.find(bp => bp.id === backpackId);
     if (!backpack || !claudeClientRef.current) {
-      showToast('KI-Analyse nicht verfügbar', 'error');
+      showToast('KI-Analyse nicht verfügbar - API-Key prüfen', 'error');
       return;
     }
 
     setSelectedBackpack(backpackId);
     setIsOptimizing(true);
+    setAiAnalysisResult(null);
 
     try {
       const prompt = generateAIAnalysisPrompt(backpack);
       const response = await claudeClientRef.current.generateText(prompt, []);
 
-      // Parse AI response and show results
+      setAiAnalysisResult(response);
       showToast('KI-Analyse abgeschlossen', 'success');
-      console.log('AI Analysis:', response);
-
-      // TODO: Parse JSON response and update duplicates
     } catch (error) {
       console.error('AI analysis error:', error);
       showToast('Fehler bei der KI-Analyse', 'error');
     } finally {
       setIsOptimizing(false);
-      setSelectedBackpack(null);
     }
   }, [backpacks, showToast]);
 
@@ -1409,7 +1405,7 @@ Format:
                     {/* Session controls */}
                     {!activeSession ? (
                       <button
-                        onClick={() => document.getElementById('sessionModal')?.classList.remove('hidden')}
+                        onClick={() => setShowSessionModal(true)}
                         className="bg-amber-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-amber-700"
                       >
                         Sitzung starten
@@ -1722,7 +1718,7 @@ Format:
                   <div className="flex justify-between items-center mb-6">
                     <h2 className="font-serif text-2xl sm:text-3xl font-bold text-amber-900">Dokumente</h2>
                     <button
-                      onClick={() => { setEditingDoc(null); setDocTitle(''); setDocContent(''); }}
+                      onClick={() => { setEditingDoc(null); setDocTitle(''); setDocContent(''); setShowDocEditor(true); }}
                       className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 flex items-center gap-2"
                     >
                       <Plus size={18} /> Neu
@@ -1730,7 +1726,7 @@ Format:
                   </div>
 
                   {/* Document Editor */}
-                  {(editingDoc || docTitle || docContent) && (
+                  {(editingDoc || showDocEditor) && (
                     <div className="bg-white rounded-xl p-4 shadow mb-6">
                       <input
                         value={docTitle}
@@ -1750,7 +1746,7 @@ Format:
                           <Save size={16} /> Speichern
                         </button>
                         <button
-                          onClick={() => { setEditingDoc(null); setDocTitle(''); setDocContent(''); }}
+                          onClick={() => { setEditingDoc(null); setShowDocEditor(false); setDocTitle(''); setDocContent(''); }}
                           className="px-4 py-2 text-amber-600 hover:text-amber-800"
                         >
                           Abbrechen
@@ -1780,7 +1776,7 @@ Format:
                         </div>
                         <div className="flex gap-2">
                           <button
-                            onClick={() => { setEditingDoc(doc); setDocTitle(doc.title); setDocContent(doc.content); }}
+                            onClick={() => { setEditingDoc(doc); setShowDocEditor(true); setDocTitle(doc.title); setDocContent(doc.content); }}
                             className="p-2 text-amber-600 hover:bg-amber-100 rounded-lg"
                           >
                             <Edit3 size={16} />
@@ -2036,7 +2032,7 @@ Format:
                           </div>
                         </div>
 
-                        {/* Optimierung bei Überschreitung */}
+                        {/* Warnung bei Überschreitung */}
                         {knowledgeStats.needsOptimization && (
                           <div className="bg-amber-50 border border-amber-300 rounded-lg p-3">
                             <div className="flex items-start gap-2">
@@ -2046,89 +2042,157 @@ Format:
                                   Wissensdatenbank überschreitet 128K!
                                 </p>
                                 <p className="text-xs text-amber-700 mt-1">
-                                  {knowledgeStats.backpacksNeeded} Rucksäcke benötigt. KI-Optimierung empfohlen.
+                                  {knowledgeStats.backpacksNeeded} Rucksäcke benötigt. Optimierung empfohlen.
                                 </p>
                               </div>
                             </div>
+                          </div>
+                        )}
 
-                            {/* Rucksack-Übersicht */}
-                            {backpacks.length > 0 && (
-                              <div className="mt-3 space-y-2">
-                                <h5 className="text-xs font-medium text-amber-800">Rucksäcke:</h5>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                  {backpacks.map(bp => (
-                                    <div
-                                      key={bp.id}
-                                      className={`bg-white rounded-lg p-2 text-center cursor-pointer transition-all ${
-                                        selectedBackpack === bp.id ? 'ring-2 ring-indigo-500' : 'hover:bg-indigo-50'
-                                      }`}
-                                      onClick={() => setSelectedBackpack(bp.id === selectedBackpack ? null : bp.id)}
-                                    >
-                                      <div className="text-lg">🎒</div>
-                                      <div className="text-xs font-medium">Rucksack {bp.id}</div>
-                                      <div className="text-xs text-gray-500">{(bp.size / 1024).toFixed(1)} KB</div>
-                                      <div className="text-xs text-gray-400">{bp.items.length} Einträge</div>
-                                    </div>
-                                  ))}
+                        {/* Rucksack-Übersicht - immer anzeigen wenn Daten vorhanden */}
+                        {backpacks.length > 0 && (
+                          <div className="bg-white rounded-lg p-3">
+                            <h4 className="text-sm font-medium text-gray-700 mb-2">
+                              Rucksäcke ({backpacks.length}):
+                            </h4>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              {backpacks.map(bp => (
+                                <div
+                                  key={bp.id}
+                                  className={`rounded-lg p-2 text-center cursor-pointer transition-all border-2 ${
+                                    selectedBackpack === bp.id
+                                      ? 'border-indigo-500 bg-indigo-50'
+                                      : 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'
+                                  }`}
+                                  onClick={() => setSelectedBackpack(bp.id === selectedBackpack ? null : bp.id)}
+                                >
+                                  <div className="text-lg">🎒</div>
+                                  <div className="text-xs font-medium">Rucksack {bp.id}</div>
+                                  <div className="text-xs text-gray-500">{(bp.size / 1024).toFixed(1)} KB</div>
+                                  <div className="text-xs text-gray-400">{bp.items.length} Einträge</div>
                                 </div>
+                              ))}
+                            </div>
+
+                            {/* Rucksack-Detail wenn ausgewählt */}
+                            {selectedBackpack && (() => {
+                              const bp = backpacks.find(b => b.id === selectedBackpack);
+                              if (!bp) return null;
+                              return (
+                                <div className="mt-3 bg-gray-50 rounded-lg p-3 border border-gray-200">
+                                  <div className="flex justify-between items-center mb-2">
+                                    <h5 className="text-sm font-medium text-gray-700">
+                                      Rucksack {bp.id} - Inhalt ({bp.items.length} Einträge, {(bp.size / 1024).toFixed(1)} KB)
+                                    </h5>
+                                    <button
+                                      onClick={() => setSelectedBackpack(null)}
+                                      className="text-gray-400 hover:text-gray-600"
+                                    >
+                                      <X size={14} />
+                                    </button>
+                                  </div>
+                                  <div className="max-h-48 overflow-y-auto space-y-1">
+                                    {bp.items.map((item, idx) => (
+                                      <div key={idx} className="bg-white rounded p-2 text-xs flex justify-between items-start">
+                                        <div className="flex-1 min-w-0">
+                                          <span className={`inline-block px-1.5 py-0.5 rounded mr-1 ${
+                                            item.type === 'document' ? 'bg-amber-100 text-amber-700' :
+                                            item.type === 'strategy' ? 'bg-purple-100 text-purple-700' :
+                                            'bg-blue-100 text-blue-700'
+                                          }`}>
+                                            {item.type === 'document' ? '📄' : item.type === 'strategy' ? '🎯' : '💬'}
+                                          </span>
+                                          <span className="font-medium">{item.title || item.id}</span>
+                                          <p className="text-gray-400 mt-0.5 truncate">{item.content.substring(0, 100)}...</p>
+                                        </div>
+                                        <span className="text-gray-400 ml-2 whitespace-nowrap">{(item.size / 1024).toFixed(1)} KB</span>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  {/* KI-Analyse Button für diesen Rucksack */}
+                                  <button
+                                    onClick={() => runAIAnalysis(bp.id)}
+                                    disabled={isOptimizing || !claudeClientRef.current}
+                                    className="mt-2 w-full bg-purple-600 text-white px-3 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm flex items-center justify-center gap-2"
+                                  >
+                                    {isOptimizing && selectedBackpack === bp.id ? (
+                                      <RefreshCw size={14} className="animate-spin" />
+                                    ) : (
+                                      <Sparkles size={14} />
+                                    )}
+                                    {isOptimizing && selectedBackpack === bp.id ? 'Analysiere...' : `Rucksack ${bp.id} mit KI analysieren`}
+                                  </button>
+                                </div>
+                              );
+                            })()}
+
+                            {/* KI-Analyse Ergebnis */}
+                            {aiAnalysisResult && (
+                              <div className="mt-3 bg-purple-50 border border-purple-200 rounded-lg p-3">
+                                <div className="flex justify-between items-center mb-2">
+                                  <h5 className="text-sm font-medium text-purple-800">KI-Analyse Ergebnis</h5>
+                                  <button
+                                    onClick={() => setAiAnalysisResult(null)}
+                                    className="text-gray-400 hover:text-gray-600"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                                <pre className="text-xs text-purple-900 whitespace-pre-wrap max-h-64 overflow-y-auto bg-white rounded p-2 border border-purple-100">
+                                  {aiAnalysisResult}
+                                </pre>
                               </div>
                             )}
+                          </div>
+                        )}
 
-                            {/* Duplikate */}
-                            {duplicates.length > 0 && (
-                              <div className="mt-3">
-                                <h5 className="text-xs font-medium text-amber-800 mb-1">
-                                  {duplicates.length} Duplikat-Gruppen gefunden
-                                </h5>
-                                <div className="max-h-32 overflow-y-auto space-y-1">
-                                  {duplicates.slice(0, 5).map((group, i) => (
-                                    <div key={i} className="bg-white rounded p-2 text-xs">
-                                      <div className="flex justify-between">
-                                        <span className="font-medium">{group.items.length}x gleicher Inhalt</span>
-                                        <span className={group.canOptimize ? 'text-green-600' : 'text-amber-600'}>
-                                          {group.canOptimize ? '✅ Optimierbar' : '⚠️ Kontext behalten'}
-                                        </span>
-                                      </div>
-                                      {group.reason && (
-                                        <p className="text-gray-500 mt-1">{group.reason}</p>
-                                      )}
-                                    </div>
-                                  ))}
-                                  {duplicates.length > 5 && (
-                                    <p className="text-xs text-center text-gray-500">
-                                      +{duplicates.length - 5} weitere...
-                                    </p>
+                        {/* Duplikate */}
+                        {duplicates.length > 0 && (
+                          <div className="bg-white rounded-lg p-3">
+                            <h4 className="text-sm font-medium text-gray-700 mb-2">
+                              {duplicates.length} Duplikat-Gruppen gefunden
+                            </h4>
+                            <div className="max-h-40 overflow-y-auto space-y-1">
+                              {duplicates.map((group, i) => (
+                                <div key={i} className="bg-gray-50 rounded p-2 text-xs">
+                                  <div className="flex justify-between">
+                                    <span className="font-medium">{group.items.length}x gleicher Inhalt</span>
+                                    <span className={group.canOptimize ? 'text-green-600' : 'text-amber-600'}>
+                                      {group.canOptimize ? '✅ Optimierbar' : '⚠️ Kontext behalten'}
+                                    </span>
+                                  </div>
+                                  <p className="text-gray-400 mt-0.5 truncate">
+                                    {group.items[0]?.content?.substring(0, 80)}...
+                                  </p>
+                                  {group.reason && (
+                                    <p className="text-gray-500 mt-1">{group.reason}</p>
                                   )}
                                 </div>
-                              </div>
-                            )}
+                              ))}
+                            </div>
 
                             {/* Optimierung starten */}
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <button
-                                onClick={runOptimization}
-                                disabled={isOptimizing || duplicates.length === 0}
-                                className="flex-1 bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm flex items-center justify-center gap-2"
-                              >
-                                {isOptimizing ? (
-                                  <RefreshCw size={14} className="animate-spin" />
-                                ) : (
-                                  <Sparkles size={14} />
-                                )}
-                                {isOptimizing ? 'Optimiere...' : 'KI-Optimierung starten'}
-                              </button>
-
-                              {selectedBackpack && claudeClientRef.current && (
-                                <button
-                                  onClick={() => runAIAnalysis(selectedBackpack)}
-                                  disabled={isOptimizing}
-                                  className="bg-purple-600 text-white px-3 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm flex items-center gap-2"
-                                >
-                                  <Sparkles size={14} />
-                                  Rucksack {selectedBackpack} analysieren
-                                </button>
+                            <button
+                              onClick={runOptimization}
+                              disabled={isOptimizing || duplicates.filter(d => d.canOptimize).length === 0}
+                              className="mt-2 w-full bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm flex items-center justify-center gap-2"
+                            >
+                              {isOptimizing ? (
+                                <RefreshCw size={14} className="animate-spin" />
+                              ) : (
+                                <Sparkles size={14} />
                               )}
-                            </div>
+                              {isOptimizing ? 'Optimiere...' : `Duplikate optimieren (${duplicates.filter(d => d.canOptimize).length} optimierbar)`}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Keine Duplikate Info */}
+                        {duplicates.length === 0 && backpacks.length > 0 && (
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
+                            <Check className="text-green-600 flex-shrink-0" size={18} />
+                            <span className="text-sm text-green-800">Keine Duplikate gefunden</span>
                           </div>
                         )}
 
@@ -2480,6 +2544,13 @@ Format:
               )}
             </button>
             <button
+              onClick={() => setActiveView('history')}
+              className={`flex flex-col items-center p-2 rounded-lg ${activeView === 'history' ? 'text-amber-600' : 'text-amber-400'}`}
+            >
+              <History size={20} />
+              <span className="text-[10px] mt-0.5">Verlauf</span>
+            </button>
+            <button
               onClick={() => setActiveView('backup')}
               className={`flex flex-col items-center p-2 rounded-lg ${activeView === 'backup' ? 'text-amber-600' : 'text-amber-400'}`}
             >
@@ -2568,7 +2639,8 @@ Format:
       )}
 
       {/* Session Start Modal */}
-      <div id="sessionModal" className="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      {showSessionModal && (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl">
           <h3 className="text-lg font-bold text-amber-900 mb-4">Neue Sitzung starten</h3>
           <div className="space-y-4">
@@ -2596,7 +2668,7 @@ Format:
           </div>
           <div className="flex gap-2 mt-4">
             <button
-              onClick={() => document.getElementById('sessionModal')?.classList.add('hidden')}
+              onClick={() => setShowSessionModal(false)}
               className="flex-1 py-2 text-amber-600 hover:bg-amber-50 rounded-xl"
             >
               Abbrechen
@@ -2604,7 +2676,7 @@ Format:
             <button
               onClick={() => {
                 startSession();
-                document.getElementById('sessionModal')?.classList.add('hidden');
+                setShowSessionModal(false);
               }}
               className="flex-1 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700"
             >
@@ -2613,6 +2685,7 @@ Format:
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
