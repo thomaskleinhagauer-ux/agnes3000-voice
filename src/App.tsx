@@ -43,6 +43,19 @@ import { AnimatedAvatar } from './AnimatedAvatar';
 
 import { signInAnonymousUser } from './firebase';
 import { saveToFirebase, loadFromFirebase } from './firebaseStorage';
+import {
+  calculateKnowledgeStats,
+  splitIntoBackpacks,
+  findDuplicates,
+  optimizeKnowledge,
+  mergeBackpacks,
+  generateAIAnalysisPrompt,
+  KnowledgeStats,
+  Backpack,
+  DuplicateGroup,
+  OptimizationResult,
+  MAX_BACKPACK_SIZE,
+} from './knowledgeOptimizer';
 
 // ================================
 // Constants
@@ -133,6 +146,15 @@ function App() {
 
   // Backup Import
   const [importText, setImportText] = useState('');
+
+  // KI-Optimierungs-Cockpit
+  const [knowledgeStats, setKnowledgeStats] = useState<KnowledgeStats | null>(null);
+  const [backpacks, setBackpacks] = useState<Backpack[]>([]);
+  const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
+  const [optimizationResult, setOptimizationResult] = useState<OptimizationResult | null>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [showOptimizationReport, setShowOptimizationReport] = useState(false);
+  const [selectedBackpack, setSelectedBackpack] = useState<number | null>(null);
 
   // Refs
   const claudeClientRef = useRef<ClaudeClient | null>(null);
@@ -998,6 +1020,94 @@ Format:
     reader.readAsText(file);
   }, [showToast]);
 
+  // ================================
+  // KI-Optimierungs-Cockpit
+  // ================================
+
+  const analyzeKnowledge = useCallback(() => {
+    const stats = calculateKnowledgeStats(appState);
+    setKnowledgeStats(stats);
+
+    if (stats.needsOptimization) {
+      const bps = splitIntoBackpacks(appState);
+      setBackpacks(bps);
+      const dups = findDuplicates(appState);
+      setDuplicates(dups);
+    } else {
+      setBackpacks([]);
+      setDuplicates([]);
+    }
+  }, [appState]);
+
+  const runOptimization = useCallback(async () => {
+    if (duplicates.length === 0) {
+      showToast('Keine Duplikate gefunden', 'success');
+      return;
+    }
+
+    setIsOptimizing(true);
+    try {
+      const result = optimizeKnowledge(appState, duplicates);
+      setOptimizationResult(result);
+      setShowOptimizationReport(true);
+
+      if (result.fitsInSingleBackpack) {
+        showToast(`Optimierung erfolgreich! ${(result.savingsPercent).toFixed(1)}% eingespart`, 'success');
+      } else {
+        showToast('Optimierung abgeschlossen - manuelles Editieren empfohlen', 'warning');
+      }
+    } catch (error) {
+      console.error('Optimization error:', error);
+      showToast('Fehler bei der Optimierung', 'error');
+    } finally {
+      setIsOptimizing(false);
+    }
+  }, [appState, duplicates, showToast]);
+
+  const applyOptimization = useCallback(() => {
+    if (!optimizationResult) return;
+
+    saveToLocalStorage(optimizationResult.optimizedState);
+    setRestoreFlag(true);
+    showToast('Optimierung angewendet - Seite wird neu geladen', 'success');
+    setTimeout(() => window.location.reload(), 1500);
+  }, [optimizationResult, showToast]);
+
+  const runAIAnalysis = useCallback(async (backpackId: number) => {
+    const backpack = backpacks.find(bp => bp.id === backpackId);
+    if (!backpack || !claudeClientRef.current) {
+      showToast('KI-Analyse nicht verfügbar', 'error');
+      return;
+    }
+
+    setSelectedBackpack(backpackId);
+    setIsOptimizing(true);
+
+    try {
+      const prompt = generateAIAnalysisPrompt(backpack);
+      const response = await claudeClientRef.current.generateText(prompt, []);
+
+      // Parse AI response and show results
+      showToast('KI-Analyse abgeschlossen', 'success');
+      console.log('AI Analysis:', response);
+
+      // TODO: Parse JSON response and update duplicates
+    } catch (error) {
+      console.error('AI analysis error:', error);
+      showToast('Fehler bei der KI-Analyse', 'error');
+    } finally {
+      setIsOptimizing(false);
+      setSelectedBackpack(null);
+    }
+  }, [backpacks, showToast]);
+
+  // Update stats when view changes to backup
+  useEffect(() => {
+    if (activeView === 'backup') {
+      analyzeKnowledge();
+    }
+  }, [activeView, analyzeKnowledge]);
+
   const syncToFirebase = useCallback(async () => {
     if (!firebaseUserId) {
       showToast('Firebase nicht verbunden', 'error');
@@ -1861,6 +1971,252 @@ Format:
                         Sync
                       </button>
                     </div>
+                  </div>
+
+                  {/* KI-Optimierungs-Cockpit */}
+                  <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-4 shadow border-2 border-indigo-200">
+                    <h3 className="font-bold text-indigo-900 mb-3 flex items-center gap-2">
+                      <Sparkles size={20} className="text-indigo-600" />
+                      KI-Optimierungs-Cockpit
+                    </h3>
+
+                    {/* Wissensdatenbank-Größe */}
+                    {knowledgeStats && (
+                      <div className="space-y-4">
+                        {/* Größenanzeige */}
+                        <div className="bg-white rounded-lg p-3">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm text-gray-600">Wissensdatenbank:</span>
+                            <span className={`font-mono font-bold ${knowledgeStats.needsOptimization ? 'text-red-600' : 'text-green-600'}`}>
+                              {(knowledgeStats.totalBytes / 1024).toFixed(1)} KB
+                            </span>
+                          </div>
+
+                          {/* Progress Bar */}
+                          <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
+                            <div
+                              className={`h-3 rounded-full transition-all ${
+                                knowledgeStats.needsOptimization ? 'bg-red-500' : 'bg-green-500'
+                              }`}
+                              style={{ width: `${Math.min((knowledgeStats.totalBytes / MAX_BACKPACK_SIZE) * 100, 100)}%` }}
+                            />
+                          </div>
+
+                          <div className="flex justify-between text-xs text-gray-500">
+                            <span>0 KB</span>
+                            <span className="font-medium">128 KB Limit</span>
+                          </div>
+
+                          {/* Token-Schätzung */}
+                          <div className="mt-2 text-xs text-gray-500">
+                            ~{knowledgeStats.estimatedTokens.toLocaleString()} Tokens geschätzt
+                          </div>
+                        </div>
+
+                        {/* Aufschlüsselung */}
+                        <div className="bg-white rounded-lg p-3">
+                          <h4 className="text-sm font-medium text-gray-700 mb-2">Aufschlüsselung:</h4>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="flex justify-between">
+                              <span>📄 Dokumente:</span>
+                              <span>{knowledgeStats.breakdown.documents.count} ({(knowledgeStats.breakdown.documents.size / 1024).toFixed(1)} KB)</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>🎯 Strategien:</span>
+                              <span>{knowledgeStats.breakdown.strategies.count} ({(knowledgeStats.breakdown.strategies.size / 1024).toFixed(1)} KB)</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>💬 Paar-Raum:</span>
+                              <span>{knowledgeStats.breakdown.messages.paar.count} Nachrichten</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>💬 Einzelräume:</span>
+                              <span>{knowledgeStats.breakdown.messages.tom.count + knowledgeStats.breakdown.messages.lisa.count} Nachrichten</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Optimierung bei Überschreitung */}
+                        {knowledgeStats.needsOptimization && (
+                          <div className="bg-amber-50 border border-amber-300 rounded-lg p-3">
+                            <div className="flex items-start gap-2">
+                              <AlertCircle className="text-amber-600 flex-shrink-0 mt-0.5" size={18} />
+                              <div>
+                                <p className="text-sm font-medium text-amber-800">
+                                  Wissensdatenbank überschreitet 128K!
+                                </p>
+                                <p className="text-xs text-amber-700 mt-1">
+                                  {knowledgeStats.backpacksNeeded} Rucksäcke benötigt. KI-Optimierung empfohlen.
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Rucksack-Übersicht */}
+                            {backpacks.length > 0 && (
+                              <div className="mt-3 space-y-2">
+                                <h5 className="text-xs font-medium text-amber-800">Rucksäcke:</h5>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  {backpacks.map(bp => (
+                                    <div
+                                      key={bp.id}
+                                      className={`bg-white rounded-lg p-2 text-center cursor-pointer transition-all ${
+                                        selectedBackpack === bp.id ? 'ring-2 ring-indigo-500' : 'hover:bg-indigo-50'
+                                      }`}
+                                      onClick={() => setSelectedBackpack(bp.id === selectedBackpack ? null : bp.id)}
+                                    >
+                                      <div className="text-lg">🎒</div>
+                                      <div className="text-xs font-medium">Rucksack {bp.id}</div>
+                                      <div className="text-xs text-gray-500">{(bp.size / 1024).toFixed(1)} KB</div>
+                                      <div className="text-xs text-gray-400">{bp.items.length} Einträge</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Duplikate */}
+                            {duplicates.length > 0 && (
+                              <div className="mt-3">
+                                <h5 className="text-xs font-medium text-amber-800 mb-1">
+                                  {duplicates.length} Duplikat-Gruppen gefunden
+                                </h5>
+                                <div className="max-h-32 overflow-y-auto space-y-1">
+                                  {duplicates.slice(0, 5).map((group, i) => (
+                                    <div key={i} className="bg-white rounded p-2 text-xs">
+                                      <div className="flex justify-between">
+                                        <span className="font-medium">{group.items.length}x gleicher Inhalt</span>
+                                        <span className={group.canOptimize ? 'text-green-600' : 'text-amber-600'}>
+                                          {group.canOptimize ? '✅ Optimierbar' : '⚠️ Kontext behalten'}
+                                        </span>
+                                      </div>
+                                      {group.reason && (
+                                        <p className="text-gray-500 mt-1">{group.reason}</p>
+                                      )}
+                                    </div>
+                                  ))}
+                                  {duplicates.length > 5 && (
+                                    <p className="text-xs text-center text-gray-500">
+                                      +{duplicates.length - 5} weitere...
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Optimierung starten */}
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                onClick={runOptimization}
+                                disabled={isOptimizing || duplicates.length === 0}
+                                className="flex-1 bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm flex items-center justify-center gap-2"
+                              >
+                                {isOptimizing ? (
+                                  <RefreshCw size={14} className="animate-spin" />
+                                ) : (
+                                  <Sparkles size={14} />
+                                )}
+                                {isOptimizing ? 'Optimiere...' : 'KI-Optimierung starten'}
+                              </button>
+
+                              {selectedBackpack && claudeClientRef.current && (
+                                <button
+                                  onClick={() => runAIAnalysis(selectedBackpack)}
+                                  disabled={isOptimizing}
+                                  className="bg-purple-600 text-white px-3 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm flex items-center gap-2"
+                                >
+                                  <Sparkles size={14} />
+                                  Rucksack {selectedBackpack} analysieren
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Optimierungsergebnis */}
+                        {optimizationResult && showOptimizationReport && (
+                          <div className="bg-white rounded-lg p-3 border-2 border-green-200">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-medium text-green-800">Optimierungsergebnis</h4>
+                              <button
+                                onClick={() => setShowOptimizationReport(false)}
+                                className="text-gray-400 hover:text-gray-600"
+                              >
+                                <X size={16} />
+                              </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+                              <div>
+                                <span className="text-gray-500">Vorher:</span>
+                                <span className="font-mono ml-2">{(optimizationResult.originalSize / 1024).toFixed(1)} KB</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Nachher:</span>
+                                <span className="font-mono ml-2 text-green-600">{(optimizationResult.optimizedSize / 1024).toFixed(1)} KB</span>
+                              </div>
+                              <div className="col-span-2">
+                                <span className="text-gray-500">Einsparung:</span>
+                                <span className="font-mono ml-2 text-green-600 font-bold">
+                                  {(optimizationResult.savingsBytes / 1024).toFixed(1)} KB ({optimizationResult.savingsPercent.toFixed(1)}%)
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="text-xs text-gray-600 mb-3">
+                              <p>✅ {optimizationResult.duplicatesOptimized} Duplikate optimiert</p>
+                              <p>⚠️ {optimizationResult.skippedWithContext} Einträge mit Kontext beibehalten</p>
+                            </div>
+
+                            {optimizationResult.fitsInSingleBackpack ? (
+                              <div className="bg-green-50 rounded p-2 text-sm text-green-800 mb-3">
+                                ✅ Passt jetzt in einen 128K Rucksack!
+                              </div>
+                            ) : (
+                              <div className="bg-amber-50 rounded p-2 text-sm text-amber-800 mb-3">
+                                ⚠️ Noch zu groß - manuelles Editieren empfohlen
+                              </div>
+                            )}
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={applyOptimization}
+                                className="flex-1 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 text-sm flex items-center justify-center gap-2"
+                              >
+                                <Check size={14} />
+                                Optimierung anwenden
+                              </button>
+                              <button
+                                onClick={() => setActiveView('documents')}
+                                className="bg-gray-200 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-300 text-sm"
+                              >
+                                Manuell editieren
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Alles OK */}
+                        {!knowledgeStats.needsOptimization && (
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
+                            <Check className="text-green-600" size={20} />
+                            <span className="text-sm text-green-800">
+                              Wissensdatenbank passt in einen 128K Rucksack - keine Optimierung nötig!
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Analyse starten Button (falls Stats nicht geladen) */}
+                    {!knowledgeStats && (
+                      <button
+                        onClick={analyzeKnowledge}
+                        className="w-full bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2"
+                      >
+                        <RefreshCw size={16} />
+                        Wissensdatenbank analysieren
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
