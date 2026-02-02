@@ -9,7 +9,7 @@ import {
   Users, User, Lock, MessageSquare, FileText, Settings as SettingsIcon,
   Clock, Send, Mic, MicOff, Save, Download, Upload, Camera, CameraOff,
   Sparkles, Home, History, Cloud, ChevronRight, X, Check, Trash2,
-  Edit3, Plus, RefreshCw, Volume2, VolumeX, AlertCircle
+  Edit3, Plus, RefreshCw, Volume2, VolumeX, AlertCircle, Archive, RotateCcw
 } from 'lucide-react';
 
 import {
@@ -139,6 +139,7 @@ function App() {
   // Document Editor
   const [editingDoc, setEditingDoc] = useState<Document | null>(null);
   const [showDocEditor, setShowDocEditor] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [docTitle, setDocTitle] = useState('');
   const [docContent, setDocContent] = useState('');
 
@@ -920,6 +921,26 @@ function App() {
       documents: prev.documents.filter(d => d.id !== docId),
     }));
     showToast('Dokument gelöscht', 'success');
+  }, [showToast]);
+
+  const archiveDocumentFn = useCallback((docId: string) => {
+    setAppState(prev => ({
+      ...prev,
+      documents: prev.documents.map(d =>
+        d.id === docId ? { ...d, isArchived: true, updatedAt: Date.now() } : d
+      ),
+    }));
+    showToast('Dokument archiviert', 'success');
+  }, [showToast]);
+
+  const restoreDocumentFn = useCallback((docId: string) => {
+    setAppState(prev => ({
+      ...prev,
+      documents: prev.documents.map(d =>
+        d.id === docId ? { ...d, isArchived: false, updatedAt: Date.now() } : d
+      ),
+    }));
+    showToast('Dokument wiederhergestellt', 'success');
   }, [showToast]);
 
   const createSessionSummary = useCallback(async () => {
@@ -1755,10 +1776,36 @@ Format:
                     </div>
                   )}
 
+                  {/* Archive Toggle */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <button
+                      onClick={() => setShowArchived(false)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                        !showArchived ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                      }`}
+                    >
+                      Aktiv ({[...documents, ...strategies].filter(d => !d.isArchived).length})
+                    </button>
+                    <button
+                      onClick={() => setShowArchived(true)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                        showArchived ? 'bg-gray-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      <Archive size={14} />
+                      Archiv ({[...documents, ...strategies].filter(d => d.isArchived).length})
+                    </button>
+                  </div>
+
                   {/* Document List */}
                   <div className="space-y-3">
-                    {[...documents, ...strategies].sort((a, b) => b.updatedAt - a.updatedAt).map(doc => (
-                      <div key={doc.id} className="bg-white rounded-xl p-4 shadow flex items-center justify-between">
+                    {[...documents, ...strategies]
+                      .filter(d => showArchived ? d.isArchived : !d.isArchived)
+                      .sort((a, b) => b.updatedAt - a.updatedAt)
+                      .map(doc => (
+                      <div key={doc.id} className={`rounded-xl p-4 shadow flex items-center justify-between ${
+                        showArchived ? 'bg-gray-50 border border-gray-200' : 'bg-white'
+                      }`}>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className={`text-xs px-2 py-0.5 rounded ${
@@ -1768,31 +1815,67 @@ Format:
                             }`}>
                               {doc.type === 'strategy' ? 'Strategie' : doc.type === 'summary' ? 'Zusammenfassung' : 'Notiz'}
                             </span>
-                            <h3 className="font-medium text-amber-900 truncate">{doc.title}</h3>
+                            {showArchived && (
+                              <span className="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-600">Archiviert</span>
+                            )}
+                            <h3 className={`font-medium truncate ${showArchived ? 'text-gray-600' : 'text-amber-900'}`}>{doc.title}</h3>
                           </div>
                           <p className="text-xs text-amber-600 mt-1">
                             {new Date(doc.updatedAt).toLocaleDateString('de-DE')}
                           </p>
                         </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => { setEditingDoc(doc); setShowDocEditor(true); setDocTitle(doc.title); setDocContent(doc.content); }}
-                            className="p-2 text-amber-600 hover:bg-amber-100 rounded-lg"
-                          >
-                            <Edit3 size={16} />
-                          </button>
-                          <button
-                            onClick={() => deleteDocumentFn(doc.id)}
-                            className="p-2 text-red-600 hover:bg-red-100 rounded-lg"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                        <div className="flex gap-1">
+                          {!showArchived ? (
+                            <>
+                              <button
+                                onClick={() => { setEditingDoc(doc); setShowDocEditor(true); setDocTitle(doc.title); setDocContent(doc.content); }}
+                                className="p-2 text-amber-600 hover:bg-amber-100 rounded-lg"
+                                title="Bearbeiten"
+                              >
+                                <Edit3 size={16} />
+                              </button>
+                              <button
+                                onClick={() => archiveDocumentFn(doc.id)}
+                                className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+                                title="Archivieren"
+                              >
+                                <Archive size={16} />
+                              </button>
+                              <button
+                                onClick={() => deleteDocumentFn(doc.id)}
+                                className="p-2 text-red-600 hover:bg-red-100 rounded-lg"
+                                title="Löschen"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => restoreDocumentFn(doc.id)}
+                                className="p-2 text-green-600 hover:bg-green-100 rounded-lg"
+                                title="Wiederherstellen"
+                              >
+                                <RotateCcw size={16} />
+                              </button>
+                              <button
+                                onClick={() => deleteDocumentFn(doc.id)}
+                                className="p-2 text-red-600 hover:bg-red-100 rounded-lg"
+                                title="Endgültig löschen"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     ))}
 
-                    {documents.length === 0 && strategies.length === 0 && (
+                    {!showArchived && documents.filter(d => !d.isArchived).length === 0 && strategies.filter(d => !d.isArchived).length === 0 && (
                       <p className="text-center text-amber-600 py-8">Noch keine Dokumente vorhanden</p>
+                    )}
+                    {showArchived && documents.filter(d => d.isArchived).length === 0 && strategies.filter(d => d.isArchived).length === 0 && (
+                      <p className="text-center text-gray-500 py-8">Keine archivierten Dokumente</p>
                     )}
                   </div>
                 </div>
