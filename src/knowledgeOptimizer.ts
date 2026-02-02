@@ -86,9 +86,69 @@ export const splitIntoBackpacks = (state: AppState): Backpack[] => {
   const backpacks: Backpack[] = [];
   let currentBackpack: Backpack = { id: 1, content: '', size: 0, items: [] };
 
+  // Helper to split large content into chunks
+  const splitContent = (content: string, chunkSize: number): string[] => {
+    const chunks: string[] = [];
+    // Split at paragraph boundaries where possible
+    const paragraphs = content.split(/\n\n+/);
+    let currentChunk = '';
+
+    for (const para of paragraphs) {
+      if (currentChunk.length + para.length + 2 > chunkSize) {
+        if (currentChunk) chunks.push(currentChunk);
+        // If single paragraph is too large, split by sentences
+        if (para.length > chunkSize) {
+          const sentences = para.split(/(?<=[.!?])\s+/);
+          currentChunk = '';
+          for (const sentence of sentences) {
+            if (currentChunk.length + sentence.length + 1 > chunkSize) {
+              if (currentChunk) chunks.push(currentChunk);
+              // If single sentence is too large, just cut it
+              if (sentence.length > chunkSize) {
+                for (let i = 0; i < sentence.length; i += chunkSize) {
+                  chunks.push(sentence.slice(i, i + chunkSize));
+                }
+                currentChunk = '';
+              } else {
+                currentChunk = sentence;
+              }
+            } else {
+              currentChunk += (currentChunk ? ' ' : '') + sentence;
+            }
+          }
+        } else {
+          currentChunk = para;
+        }
+      } else {
+        currentChunk += (currentChunk ? '\n\n' : '') + para;
+      }
+    }
+    if (currentChunk) chunks.push(currentChunk);
+    return chunks;
+  };
+
   // Helper to add item to backpack
   const addToBackpack = (item: BackpackItem) => {
-    if (currentBackpack.size + item.size > MAX_BACKPACK_SIZE) {
+    // If item is larger than max size, split it
+    if (item.size > MAX_BACKPACK_SIZE) {
+      const chunks = splitContent(item.content, MAX_BACKPACK_SIZE - 1000); // Leave room for metadata
+      chunks.forEach((chunk, idx) => {
+        const chunkItem: BackpackItem = {
+          ...item,
+          id: `${item.id}_part${idx + 1}`,
+          title: item.title ? `${item.title} (Teil ${idx + 1}/${chunks.length})` : undefined,
+          content: chunk,
+          size: chunk.length,
+        };
+        addSingleItem(chunkItem);
+      });
+      return;
+    }
+    addSingleItem(item);
+  };
+
+  const addSingleItem = (item: BackpackItem) => {
+    if (currentBackpack.size + item.size > MAX_BACKPACK_SIZE && currentBackpack.items.length > 0) {
       // Start new backpack
       backpacks.push(currentBackpack);
       currentBackpack = {
