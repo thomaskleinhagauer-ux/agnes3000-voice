@@ -552,19 +552,20 @@ function App() {
         }, []);
 
       // Build document context - use Vermittler-KI (Context Router) for large KBs
-      const activeDocs = documents.filter(d => !d.isArchived);
-      const totalDocChars = activeDocs.reduce((sum, d) => sum + d.content.length, 0);
+      // Router sees ALL documents: archived = verified/high-priority, active = working docs
+      const allDocs = documents;
+      const totalDocChars = allDocs.reduce((sum, d) => sum + d.content.length, 0);
       let relevantDocs: string[];
       let documentDirectory: string | undefined;
       const useRouter = settings.contextRouterEnabled &&
         settings.aiProvider === 'claude' &&
         claudeClientRef.current &&
         totalDocChars > DEFAULT_ROUTER_CONFIG.skipThresholdChars &&
-        activeDocs.length > 3;
+        allDocs.length > 3;
 
       if (useRouter) {
-        // Vermittler-KI: Haiku selects relevant docs, then Opus gets only those
-        console.log(`[Vermittler-KI] Routing aktiviert (${Math.round(totalDocChars / 1000)}K chars, ${activeDocs.length} Dokumente)`);
+        // Vermittler-KI: Haiku selects relevant docs (prefers archived/verified)
+        console.log(`[Vermittler-KI] Routing aktiviert (${Math.round(totalDocChars / 1000)}K chars, ${allDocs.length} Dokumente)`);
         const routerResult = await routeContext(
           inputText.trim(),
           currentRoom,
@@ -574,33 +575,25 @@ function App() {
           settings.user2Name,
         );
         const selectedIdSet = new Set(routerResult.selectedDocIds);
-        relevantDocs = activeDocs
+        relevantDocs = allDocs
           .filter(d => selectedIdSet.has(d.id))
           .sort((a, b) => b.updatedAt - a.updatedAt)
-          .map(d => `[${d.title}]\n${d.content}`);
+          .map(d => `[${d.title}${d.isArchived ? ' (Archiv/Verifiziert)' : ''}]\n${d.content}`);
 
-        // Dokumenten-Verzeichnis: Kompakte Karte ALLER Dokumente (inkl. Archiv) für Opus/Sonnet
-        const { indexText: activeIndex } = buildDocumentIndex(documents);
-        const archivedDocs = documents.filter(d => d.isArchived);
-        let archiveIndex = '';
-        if (archivedDocs.length > 0) {
-          archiveIndex = '\n\n--- ARCHIVIERTE DOKUMENTE (per [DOK_ANFRAGE:Titel] abrufbar) ---\n' +
-            archivedDocs.map((doc, i) =>
-              `[A${i + 1}] Titel: ${doc.title}\n` +
-              `     Typ: ${doc.type} | Person: ${doc.person || 'beide'} | ${doc.content.length} Zeichen\n` +
-              `     Vorschau: ${doc.content.slice(0, 200).trim()}${doc.content.length > 200 ? '...' : ''}`
-            ).join('\n\n');
-        }
-        documentDirectory = activeIndex + archiveIndex;
-        console.log(`[Vermittler-KI] ${relevantDocs.length} Volltexte + Verzeichnis: ${activeDocs.length} aktiv, ${archivedDocs.length} archiviert`);
+        // Dokumenten-Verzeichnis: Karte ALLER Dokumente (aktiv + archiviert)
+        const { indexText } = buildDocumentIndex(documents);
+        documentDirectory = indexText;
+        const archivedCount = documents.filter(d => d.isArchived).length;
+        const activeCount = documents.filter(d => !d.isArchived).length;
+        console.log(`[Vermittler-KI] ${relevantDocs.length} Volltexte, Verzeichnis: ${activeCount} aktiv, ${archivedCount} archiviert`);
       } else {
         // Small KB: send all docs up to limit (no directory needed)
         const MAX_DOC_CHARS = 600000;
         let docChars = 0;
-        relevantDocs = activeDocs
+        relevantDocs = allDocs
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .reduce((acc: string[], d) => {
-            const docText = `[${d.title}]\n${d.content}`;
+            const docText = `[${d.title}${d.isArchived ? ' (Archiv/Verifiziert)' : ''}]\n${d.content}`;
             if (docChars + docText.length <= MAX_DOC_CHARS) {
               docChars += docText.length;
               acc.push(docText);

@@ -18,6 +18,7 @@ export interface DocumentIndexEntry {
   person?: string;
   charCount: number;
   preview: string;
+  isArchived: boolean;
 }
 
 export interface RouterResult {
@@ -51,22 +52,22 @@ export function buildDocumentIndex(
   documents: Document[],
   config: ContextRouterConfig = DEFAULT_ROUTER_CONFIG
 ): { index: DocumentIndexEntry[]; indexText: string; totalChars: number } {
-  const activeDocs = documents.filter(d => !d.isArchived);
-
-  const index: DocumentIndexEntry[] = activeDocs.map(doc => ({
+  // Index ALL documents - archived docs are verified/high-quality sources
+  const index: DocumentIndexEntry[] = documents.map(doc => ({
     id: doc.id,
     title: doc.title,
     type: doc.type,
     person: doc.person,
     charCount: doc.content.length,
+    isArchived: !!doc.isArchived,
     preview: doc.content.slice(0, config.maxIndexPreviewChars).trim() +
              (doc.content.length > config.maxIndexPreviewChars ? '...' : ''),
   }));
 
-  const totalChars = activeDocs.reduce((sum, d) => sum + d.content.length, 0);
+  const totalChars = documents.reduce((sum, d) => sum + d.content.length, 0);
 
   const indexText = index.map((entry, i) =>
-    `[${i + 1}] ID: ${entry.id}\n` +
+    `[${i + 1}] ID: ${entry.id}${entry.isArchived ? ' [ARCHIV - VERIFIZIERT]' : ''}\n` +
     `    Titel: ${entry.title}\n` +
     `    Typ: ${entry.type} | Person: ${entry.person || 'beide'} | ${entry.charCount} Zeichen\n` +
     `    Vorschau: ${entry.preview}`
@@ -117,14 +118,20 @@ Die Therapie-KI hat ein begrenztes Kontextfenster. Sende NUR relevante Dokumente
 
 AKTUELLER RAUM: ${roomContext}
 
+INFORMATIONS-BEWERTUNG:
+Dokumente mit [ARCHIV - VERIFIZIERT] sind vom Therapeuten-Team geprueft und archiviert.
+Sie enthalten verifizierte, hochwertige Informationen und sollen BEVORZUGT ausgewaehlt werden.
+Archivierte Dokumente haben hoeheren Informationswert als aktive Arbeits-Dokumente.
+
 REGELN:
-1. Waehle Dokumente die thematisch zur Frage passen
-2. Im Paar-Raum: Dokumente beider Partner koennen relevant sein
-3. Im Einzel-Raum: Bevorzuge Dokumente dieser Person
-4. Strategien werden separat gesendet - hier nur Dokumente auswaehlen
-5. Maximal ${Math.round(maxSelectedChars / 1000)}K Zeichen Gesamtgroesse der Auswahl
-6. Bei Unsicherheit: lieber ein Dokument zu viel als zu wenig
-7. Bei allgemeinen Gespraechen ohne spezifischen Bezug: waehle die 3-5 neuesten/wichtigsten
+1. ARCHIV-Dokumente bei thematischer Relevanz IMMER bevorzugt auswaehlen
+2. Waehle weitere Dokumente die thematisch zur Frage passen
+3. Im Paar-Raum: Dokumente beider Partner koennen relevant sein
+4. Im Einzel-Raum: Bevorzuge Dokumente dieser Person
+5. Strategien werden separat gesendet - hier nur Dokumente auswaehlen
+6. Maximal ${Math.round(maxSelectedChars / 1000)}K Zeichen Gesamtgroesse der Auswahl
+7. Bei Unsicherheit: lieber ein Dokument zu viel als zu wenig
+8. Bei allgemeinen Gespraechen: waehle relevante Archiv-Dokumente + 2-3 neueste aktive
 
 DOKUMENTEN-INDEX:
 ${documentIndex}
@@ -155,7 +162,7 @@ export async function routeContext(
 
   if (!shouldUseRouter(totalChars, index.length, config)) {
     return {
-      selectedDocIds: documents.filter(d => !d.isArchived).map(d => d.id),
+      selectedDocIds: documents.map(d => d.id),
       reasoning: 'Routing uebersprungen - Wissensbasis klein genug',
       routerUsed: false,
       routerTimeMs: 0,
@@ -231,7 +238,7 @@ export async function routeContext(
     console.error('[Vermittler-KI] Fehler, Fallback auf alle Dokumente:', error);
 
     return {
-      selectedDocIds: documents.filter(d => !d.isArchived).map(d => d.id),
+      selectedDocIds: documents.map(d => d.id),
       reasoning: `Routing fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannt'}. Fallback.`,
       routerUsed: false,
       routerTimeMs: elapsed,

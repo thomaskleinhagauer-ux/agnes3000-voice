@@ -156,6 +156,11 @@ ${strategies.join('\n\n')}
     prompt += `
 RELEVANTE DOKUMENTE (Volltext):
 ${documents.join('\n\n')}
+
+INFORMATIONS-HIERARCHIE:
+- Dokumente mit "(Archiv/Verifiziert)" sind geprueft und haben HOECHSTE Glaubwuerdigkeit
+- Archiv-Informationen immer bevorzugt verwenden wenn sie zur Frage passen
+- Aktive Dokumente sind Arbeits-Dokumente und koennen sich noch aendern
 `;
   }
 
@@ -165,11 +170,12 @@ DOKUMENTEN-VERZEICHNIS (alle verfuegbaren Dokumente):
 ${documentDirectory}
 
 WICHTIG: Die oben gelisteten "RELEVANTE DOKUMENTE" enthalten den Volltext.
-Das Verzeichnis zeigt ALLE verfuegbaren Dokumente. Wenn du ein Dokument aus dem
-Verzeichnis benoetingst das nicht im Volltext vorliegt, fuege diesen Tag ein:
+Das Verzeichnis zeigt ALLE verfuegbaren Dokumente (aktiv + archiviert).
+Dokumente mit [ARCHIV - VERIFIZIERT] sind besonders hochwertig.
+Wenn du ein Dokument aus dem Verzeichnis benoetingst das nicht im Volltext
+vorliegt, fuege diesen Tag ein:
 [DOK_ANFRAGE:Exakter Dokumenttitel]
 Das Dokument wird dann automatisch nachgeladen und du erhaeltst eine Folgeanfrage.
-Nutze dies nur wenn der Inhalt wirklich relevant fuer deine Antwort ist.
 `;
   }
 
