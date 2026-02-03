@@ -531,6 +531,14 @@ export class GeminiClient {
         contents.push({ role: 'user', parts: [{ text: 'Start' }] });
       }
 
+      // Truncate system prompt if too long for Gemini (limit ~30K chars to be safe)
+      const MAX_GEMINI_SYSTEM_CHARS = 30000;
+      let systemPrompt = prompt;
+      if (prompt.length > MAX_GEMINI_SYSTEM_CHARS) {
+        console.warn(`[Gemini] System prompt too long (${prompt.length} chars), truncating to ${MAX_GEMINI_SYSTEM_CHARS}`);
+        systemPrompt = prompt.slice(0, MAX_GEMINI_SYSTEM_CHARS) + '\n\n[System prompt gekürzt wegen Längenbeschränkung]';
+      }
+
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.apiKey}`,
         {
@@ -538,7 +546,9 @@ export class GeminiClient {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents,
-            systemInstruction: prompt,
+            systemInstruction: {
+              parts: [{ text: systemPrompt }]
+            },
             generationConfig: {
               maxOutputTokens: 4096,
             },
