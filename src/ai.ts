@@ -92,7 +92,8 @@ export const getSystemPrompt = (
   documents: string[],
   currentSpeaker?: SpeakerType,
   sessionTime?: { remaining: number; total: number; goal: string },
-  emotionData?: EmotionAnalysis
+  emotionData?: EmotionAnalysis,
+  documentDirectory?: string
 ): string => {
   let prompt = `Du bist AGNES, eine KI-Therapeutin für die IMAGO VOICE Paartherapie-Plattform.
 Partner: ${user1Name} und ${user2Name}
@@ -153,8 +154,22 @@ ${strategies.join('\n\n')}
 
   if (documents.length > 0) {
     prompt += `
-RELEVANTE DOKUMENTE (als Kontext):
+RELEVANTE DOKUMENTE (Volltext):
 ${documents.join('\n\n')}
+`;
+  }
+
+  if (documentDirectory) {
+    prompt += `
+DOKUMENTEN-VERZEICHNIS (alle verfuegbaren Dokumente):
+${documentDirectory}
+
+WICHTIG: Die oben gelisteten "RELEVANTE DOKUMENTE" enthalten den Volltext.
+Das Verzeichnis zeigt ALLE verfuegbaren Dokumente. Wenn du ein Dokument aus dem
+Verzeichnis benoetingst das nicht im Volltext vorliegt, fuege diesen Tag ein:
+[DOK_ANFRAGE:Exakter Dokumenttitel]
+Das Dokument wird dann automatisch nachgeladen und du erhaeltst eine Folgeanfrage.
+Nutze dies nur wenn der Inhalt wirklich relevant fuer deine Antwort ist.
 `;
   }
 

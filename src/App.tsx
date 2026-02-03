@@ -57,7 +57,7 @@ import {
   MAX_BACKPACK_SIZE,
 } from './knowledgeOptimizer';
 
-import { routeContext, DEFAULT_ROUTER_CONFIG } from './contextRouter';
+import { routeContext, buildDocumentIndex, DEFAULT_ROUTER_CONFIG } from './contextRouter';
 
 // ================================
 // Constants
@@ -552,21 +552,21 @@ function App() {
       const activeDocs = documents.filter(d => !d.isArchived);
       const totalDocChars = activeDocs.reduce((sum, d) => sum + d.content.length, 0);
       let relevantDocs: string[];
-
-      if (
-        settings.contextRouterEnabled &&
+      let documentDirectory: string | undefined;
+      const useRouter = settings.contextRouterEnabled &&
         settings.aiProvider === 'claude' &&
         claudeClientRef.current &&
         totalDocChars > DEFAULT_ROUTER_CONFIG.skipThresholdChars &&
-        activeDocs.length > 3
-      ) {
+        activeDocs.length > 3;
+
+      if (useRouter) {
         // Vermittler-KI: Haiku selects relevant docs, then Opus gets only those
         console.log(`[Vermittler-KI] Routing aktiviert (${Math.round(totalDocChars / 1000)}K chars, ${activeDocs.length} Dokumente)`);
         const routerResult = await routeContext(
           inputText.trim(),
           currentRoom,
           documents,
-          claudeClientRef.current.getClient(),
+          claudeClientRef.current!.getClient(),
           settings.user1Name,
           settings.user2Name,
         );
@@ -575,8 +575,13 @@ function App() {
           .filter(d => selectedIdSet.has(d.id))
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .map(d => `[${d.title}]\n${d.content}`);
+
+        // Dokumenten-Verzeichnis: Kompakte Karte ALLER Dokumente für Opus/Sonnet
+        const { indexText } = buildDocumentIndex(documents);
+        documentDirectory = indexText;
+        console.log(`[Vermittler-KI] ${relevantDocs.length} Volltexte + Verzeichnis mit ${activeDocs.length} Eintraegen`);
       } else {
-        // Small KB: send all docs up to limit
+        // Small KB: send all docs up to limit (no directory needed)
         const MAX_DOC_CHARS = 600000;
         let docChars = 0;
         relevantDocs = activeDocs
@@ -591,23 +596,25 @@ function App() {
           }, []);
       }
 
-      // Pass document contents to system prompt so AI has context
-      const systemPrompt = getSystemPrompt(
+      // Build system prompt with document directory for on-demand access
+      const buildPrompt = (docs: string[]) => getSystemPrompt(
         currentRoom,
         settings.therapySchool,
         settings.user1Name,
         settings.user2Name,
         relevantStrategies,
-        relevantDocs, // Documents as context for AI
+        docs,
         currentRoom === 'paar' ? currentSpeaker : undefined,
         activeSession ? {
           remaining: sessionTimeRemaining || 0,
           total: activeSession.duration,
           goal: activeSession.goal || '',
         } : undefined,
-        currentEmotionAnalysis || undefined
+        currentEmotionAnalysis || undefined,
+        documentDirectory
       );
 
+      const systemPrompt = buildPrompt(relevantDocs);
       const history = [...(messages[currentRoom] || []), userMessage];
 
       let fullResponse = '';
@@ -615,6 +622,23 @@ function App() {
       // Use non-streaming API for reliability (streaming had issues with SDK v0.71)
       if (settings.aiProvider === 'claude' && claudeClientRef.current) {
         fullResponse = await claudeClientRef.current.generateText(systemPrompt, history);
+
+        // Dokumenten-Nachlademechanismus: Wenn KI ein Dokument anfordert
+        const dokRequestMatch = fullResponse.match(/\[DOK_ANFRAGE:([^\]]+)\]/);
+        if (dokRequestMatch && useRouter) {
+          const requestedTitle = dokRequestMatch[1].trim();
+          const requestedDoc = activeDocs.find(d =>
+            d.title.toLowerCase() === requestedTitle.toLowerCase()
+          );
+          if (requestedDoc) {
+            console.log(`[Vermittler-KI] Dokument nachgeladen: "${requestedDoc.title}" (${requestedDoc.content.length} chars)`);
+            const extendedDocs = [...relevantDocs, `[${requestedDoc.title}]\n${requestedDoc.content}`];
+            const extendedPrompt = buildPrompt(extendedDocs);
+            // Re-call with the requested document added
+            fullResponse = await claudeClientRef.current.generateText(extendedPrompt, history);
+          }
+        }
+
         if (settings.ttsEnabled && fullResponse.trim() && geminiClientRef.current) {
           playTTS(fullResponse);
         }
