@@ -278,7 +278,7 @@ export class ClaudeClient {
     this.model = model;
   }
 
-  async generateText(systemPrompt: string, history: Message[], options?: { maxTokens?: number }): Promise<string> {
+  async generateText(systemPrompt: string, history: Message[], options?: { maxTokens?: number; cachedContext?: string }): Promise<string> {
     try {
       const messages = history
         .filter(msg => msg.content && msg.content.trim())
@@ -287,12 +287,37 @@ export class ClaudeClient {
           content: msg.content,
         }));
 
+      // Prompt caching: separate large static context (documents) from dynamic prompt
+      let system: string | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>;
+      if (options?.cachedContext && options.cachedContext.length > 4000) {
+        system = [
+          {
+            type: 'text' as const,
+            text: options.cachedContext,
+            cache_control: { type: 'ephemeral' as const },
+          },
+          {
+            type: 'text' as const,
+            text: systemPrompt,
+          },
+        ];
+        console.log(`[Prompt Cache] ${Math.round(options.cachedContext.length / 1000)}K chars cached`);
+      } else {
+        system = (options?.cachedContext ? options.cachedContext + '\n\n' : '') + systemPrompt;
+      }
+
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: options?.maxTokens || 4096,
-        system: systemPrompt,
+        system,
         messages: messages.length > 0 ? messages : [{ role: 'user', content: 'Start' }],
       });
+
+      // Log cache performance
+      if (response.usage && 'cache_read_input_tokens' in response.usage) {
+        const usage = response.usage as { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
+        console.log(`[Prompt Cache] Hit: ${usage.cache_read_input_tokens || 0} tokens read, ${usage.cache_creation_input_tokens || 0} tokens written`);
+      }
 
       const textContent = response.content.find(c => c.type === 'text');
       return textContent ? textContent.text : '';

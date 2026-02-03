@@ -614,14 +614,50 @@ function App() {
         documentDirectory
       );
 
-      const systemPrompt = buildPrompt(relevantDocs);
+      // Build cached context block: documents + strategies + directory (stable between messages)
+      const buildCachedContext = (docs: string[]) => {
+        const parts: string[] = [];
+        if (relevantStrategies.length > 0) {
+          parts.push(`ASSESSMENT-STRATEGIEN:\n${relevantStrategies.join('\n\n')}`);
+        }
+        if (docs.length > 0) {
+          parts.push(`RELEVANTE DOKUMENTE (Volltext):\n${docs.join('\n\n')}`);
+        }
+        if (documentDirectory) {
+          parts.push(`DOKUMENTEN-VERZEICHNIS:\n${documentDirectory}`);
+        }
+        return parts.length > 0 ? parts.join('\n\n---\n\n') : undefined;
+      };
+
+      const cachedContext = buildCachedContext(relevantDocs);
+      // Dynamic prompt: everything that changes per message (session time, emotions, etc.)
+      // Pass empty arrays for strategies/documents since they're in cachedContext
+      const dynamicPrompt = cachedContext ? getSystemPrompt(
+        currentRoom,
+        settings.therapySchool,
+        settings.user1Name,
+        settings.user2Name,
+        [], // strategies in cache
+        [], // documents in cache
+        currentRoom === 'paar' ? currentSpeaker : undefined,
+        activeSession ? {
+          remaining: sessionTimeRemaining || 0,
+          total: activeSession.duration,
+          goal: activeSession.goal || '',
+        } : undefined,
+        currentEmotionAnalysis || undefined
+      ) : buildPrompt(relevantDocs);
+
+      const systemPrompt = cachedContext ? dynamicPrompt : buildPrompt(relevantDocs);
       const history = [...(messages[currentRoom] || []), userMessage];
 
       let fullResponse = '';
 
-      // Use non-streaming API for reliability (streaming had issues with SDK v0.71)
+      // Use non-streaming API with prompt caching for documents
       if (settings.aiProvider === 'claude' && claudeClientRef.current) {
-        fullResponse = await claudeClientRef.current.generateText(systemPrompt, history);
+        fullResponse = await claudeClientRef.current.generateText(
+          systemPrompt, history, { cachedContext }
+        );
 
         // Dokumenten-Nachlademechanismus: Wenn KI ein Dokument anfordert
         const dokRequestMatch = fullResponse.match(/\[DOK_ANFRAGE:([^\]]+)\]/);
@@ -633,9 +669,10 @@ function App() {
           if (requestedDoc) {
             console.log(`[Vermittler-KI] Dokument nachgeladen: "${requestedDoc.title}" (${requestedDoc.content.length} chars)`);
             const extendedDocs = [...relevantDocs, `[${requestedDoc.title}]\n${requestedDoc.content}`];
-            const extendedPrompt = buildPrompt(extendedDocs);
-            // Re-call with the requested document added
-            fullResponse = await claudeClientRef.current.generateText(extendedPrompt, history);
+            const extendedCache = buildCachedContext(extendedDocs);
+            fullResponse = await claudeClientRef.current.generateText(
+              systemPrompt, history, { cachedContext: extendedCache }
+            );
           }
         }
 
@@ -643,7 +680,7 @@ function App() {
           playTTS(fullResponse);
         }
       } else if (geminiClientRef.current) {
-        fullResponse = await geminiClientRef.current.generateText(systemPrompt, history);
+        fullResponse = await geminiClientRef.current.generateText(buildPrompt(relevantDocs), history);
         if (settings.ttsEnabled) {
           playTTS(fullResponse);
         }
