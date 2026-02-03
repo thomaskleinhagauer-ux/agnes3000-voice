@@ -142,6 +142,9 @@ function App() {
   const [editingDoc, setEditingDoc] = useState<Document | null>(null);
   const [showDocEditor, setShowDocEditor] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [archiveUnlocked, setArchiveUnlocked] = useState(false);
+  const [showArchivePasswordModal, setShowArchivePasswordModal] = useState(false);
+  const [archivePasswordInput, setArchivePasswordInput] = useState('');
   const [docTitle, setDocTitle] = useState('');
   const [docContent, setDocContent] = useState('');
 
@@ -1869,7 +1872,7 @@ Format:
                   {/* Archive Toggle */}
                   <div className="flex items-center gap-3 mb-4">
                     <button
-                      onClick={() => setShowArchived(false)}
+                      onClick={() => { setShowArchived(false); setArchiveUnlocked(false); }}
                       className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                         !showArchived ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
                       }`}
@@ -1877,15 +1880,77 @@ Format:
                       Aktiv ({[...documents, ...strategies].filter(d => !d.isArchived).length})
                     </button>
                     <button
-                      onClick={() => setShowArchived(true)}
+                      onClick={() => {
+                        if (archiveUnlocked) {
+                          setShowArchived(true);
+                        } else {
+                          setShowArchivePasswordModal(true);
+                          setArchivePasswordInput('');
+                        }
+                      }}
                       className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
                         showArchived ? 'bg-gray-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                       }`}
                     >
-                      <Archive size={14} />
+                      <Lock size={14} />
                       Archiv ({[...documents, ...strategies].filter(d => d.isArchived).length})
                     </button>
                   </div>
+
+                  {/* Archive Password Modal */}
+                  {showArchivePasswordModal && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowArchivePasswordModal(false)}>
+                      <div className="bg-white rounded-2xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
+                        <h3 className="font-bold text-amber-900 mb-3 flex items-center gap-2">
+                          <Lock size={18} /> Archiv geschützt
+                        </h3>
+                        <p className="text-sm text-amber-600 mb-4">Passwort eingeben um das Archiv einzusehen.</p>
+                        <input
+                          type="password"
+                          value={archivePasswordInput}
+                          onChange={e => setArchivePasswordInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              if (archivePasswordInput === GENERAL_PASSWORD_CHECK) {
+                                setArchiveUnlocked(true);
+                                setShowArchived(true);
+                                setShowArchivePasswordModal(false);
+                              } else {
+                                showToast('Falsches Passwort', 'error');
+                                setArchivePasswordInput('');
+                              }
+                            }
+                          }}
+                          placeholder="Passwort..."
+                          className="w-full p-3 border border-amber-200 rounded-lg mb-3 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                          autoFocus
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              if (archivePasswordInput === GENERAL_PASSWORD_CHECK) {
+                                setArchiveUnlocked(true);
+                                setShowArchived(true);
+                                setShowArchivePasswordModal(false);
+                              } else {
+                                showToast('Falsches Passwort', 'error');
+                                setArchivePasswordInput('');
+                              }
+                            }}
+                            className="flex-1 bg-amber-600 text-white py-2 rounded-lg hover:bg-amber-700"
+                          >
+                            Entsperren
+                          </button>
+                          <button
+                            onClick={() => setShowArchivePasswordModal(false)}
+                            className="px-4 py-2 text-amber-600 hover:text-amber-800"
+                          >
+                            Abbrechen
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Document List */}
                   <div className="space-y-3">
