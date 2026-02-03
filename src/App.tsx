@@ -57,7 +57,7 @@ import {
   MAX_BACKPACK_SIZE,
 } from './knowledgeOptimizer';
 
-import { routeContext, buildDocumentIndex, DEFAULT_ROUTER_CONFIG } from './contextRouter';
+import { routeContext, buildDocumentIndex, DEFAULT_ROUTER_CONFIG, MAX_TOTAL_CONTEXT_CHARS } from './contextRouter';
 
 // ================================
 // Constants
@@ -538,7 +538,7 @@ function App() {
     try {
       // Build context
       // Limit strategies to prevent token overflow (max ~30k chars = ~7.5k tokens)
-      const MAX_STRATEGY_CHARS = 30000;
+      const MAX_STRATEGY_CHARS = 20000; // 20K chars (~5K tokens) - reduced for 200K limit
       let stratChars = 0;
       const relevantStrategies = strategies
         .filter(s => currentRoom === 'paar' || s.person === (currentRoom as 'tom' | 'lisa'))
@@ -588,7 +588,7 @@ function App() {
         console.log(`[Vermittler-KI] ${relevantDocs.length} Volltexte, Verzeichnis: ${activeCount} aktiv, ${archivedCount} archiviert`);
       } else {
         // Small KB: send all docs up to limit (no directory needed)
-        const MAX_DOC_CHARS = 600000;
+        const MAX_DOC_CHARS = 300000; // 300K chars (~75K tokens) - reduced to stay under 200K limit
         let docChars = 0;
         relevantDocs = allDocs
           .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -621,18 +621,60 @@ function App() {
       );
 
       // Build cached context block: documents + strategies + directory (stable between messages)
+      // HARD LIMIT: Truncate to stay under 200K token API limit
       const buildCachedContext = (docs: string[]) => {
+        let budget = MAX_TOTAL_CONTEXT_CHARS;
         const parts: string[] = [];
+
+        // 1. Strategies first (highest priority, usually small)
         if (relevantStrategies.length > 0) {
-          parts.push(`ASSESSMENT-STRATEGIEN:\n${relevantStrategies.join('\n\n')}`);
+          const stratText = `ASSESSMENT-STRATEGIEN:\n${relevantStrategies.join('\n\n')}`;
+          if (stratText.length <= budget) {
+            parts.push(stratText);
+            budget -= stratText.length;
+          } else {
+            parts.push(stratText.slice(0, budget));
+            budget = 0;
+          }
         }
-        if (docs.length > 0) {
-          parts.push(`RELEVANTE DOKUMENTE (Volltext):\n${docs.join('\n\n')}`);
+
+        // 2. Documents (main content)
+        if (docs.length > 0 && budget > 10000) {
+          const docsText = `RELEVANTE DOKUMENTE (Volltext):\n${docs.join('\n\n')}`;
+          if (docsText.length <= budget) {
+            parts.push(docsText);
+            budget -= docsText.length;
+          } else {
+            // Truncate docs to fit
+            let truncatedDocs = '';
+            for (const doc of docs) {
+              if (truncatedDocs.length + doc.length + 10 <= budget - 50) {
+                truncatedDocs += (truncatedDocs ? '\n\n' : '') + doc;
+              } else break;
+            }
+            if (truncatedDocs) {
+              parts.push(`RELEVANTE DOKUMENTE (Volltext, gekuerzt):\n${truncatedDocs}`);
+              budget -= truncatedDocs.length + 50;
+            }
+          }
         }
-        if (documentDirectory) {
-          parts.push(`DOKUMENTEN-VERZEICHNIS:\n${documentDirectory}`);
+
+        // 3. Directory (only if space, can be omitted)
+        if (documentDirectory && budget > 5000) {
+          const dirText = `DOKUMENTEN-VERZEICHNIS:\n${documentDirectory}`;
+          if (dirText.length <= budget) {
+            parts.push(dirText);
+          } else if (budget > 10000) {
+            // Truncate directory
+            parts.push(`DOKUMENTEN-VERZEICHNIS (gekuerzt):\n${documentDirectory.slice(0, budget - 100)}\n[...]`);
+          }
         }
-        return parts.length > 0 ? parts.join('\n\n---\n\n') : undefined;
+
+        const result = parts.length > 0 ? parts.join('\n\n---\n\n') : undefined;
+        if (result) {
+          console.log(`[Context] Cached context: ${Math.round(result.length / 1000)}K chars (~${Math.round(result.length / 4000)}K tokens)`);
+        }
+        return result;
       };
 
       const cachedContext = buildCachedContext(relevantDocs);

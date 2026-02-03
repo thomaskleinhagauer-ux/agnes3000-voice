@@ -547,11 +547,17 @@ export class GeminiClient {
       );
 
       if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
+        const errorText = await response.text();
+        console.error('Gemini API error response:', errorText);
+        throw new Error(`Gemini API error: ${response.status} - ${errorText.slice(0, 200)}`);
       }
 
       const data = await response.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text && data.error) {
+        throw new Error(`Gemini error: ${data.error.message || JSON.stringify(data.error)}`);
+      }
+      return text || '';
     } catch (error) {
       console.error('Gemini generateText error:', error);
       throw error;

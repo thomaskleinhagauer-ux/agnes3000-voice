@@ -39,10 +39,13 @@ export interface ContextRouterConfig {
 export const DEFAULT_ROUTER_CONFIG: ContextRouterConfig = {
   enabled: true,
   routerModel: 'claude-haiku-3-5-20241022',
-  skipThresholdChars: 100_000,
-  maxSelectedChars: 120_000,
-  maxIndexPreviewChars: 200,
+  skipThresholdChars: 50_000,   // 50K chars (~12K tokens) - activate router earlier
+  maxSelectedChars: 80_000,    // 80K chars (~20K tokens) - leave room for strategies/history
+  maxIndexPreviewChars: 150,   // shorter previews
 };
+
+// Hard limit for total context (docs + strategies + directory)
+export const MAX_TOTAL_CONTEXT_CHARS = 400_000; // ~100K tokens, leaves 100K for system+history
 
 // ================================
 // Index Builder
