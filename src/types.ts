@@ -120,6 +120,9 @@ export interface Settings {
 
   // Session defaults
   defaultSessionDuration: number; // minutes
+
+  // Context Router (Vermittler-KI)
+  contextRouterEnabled: boolean;
 }
 
 export type TherapySchool =

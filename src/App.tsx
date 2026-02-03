@@ -57,6 +57,8 @@ import {
   MAX_BACKPACK_SIZE,
 } from './knowledgeOptimizer';
 
+import { routeContext, DEFAULT_ROUTER_CONFIG } from './contextRouter';
+
 // ================================
 // Constants
 // ================================
@@ -546,21 +548,48 @@ function App() {
           return acc;
         }, []);
 
-      // Build document context for caching (large docs benefit from prompt caching)
-      // Max 600k chars (~150k tokens) to stay under 200k total limit with room for messages
-      const MAX_DOC_CHARS = 600000;
-      let docChars = 0;
-      const relevantDocs = documents
-        .filter(d => !d.isArchived)
-        .sort((a, b) => b.updatedAt - a.updatedAt) // newest first
-        .reduce((acc: string[], d) => {
-          const docText = `[${d.title}]\n${d.content}`;
-          if (docChars + docText.length <= MAX_DOC_CHARS) {
-            docChars += docText.length;
-            acc.push(docText);
-          }
-          return acc;
-        }, []);
+      // Build document context - use Vermittler-KI (Context Router) for large KBs
+      const activeDocs = documents.filter(d => !d.isArchived);
+      const totalDocChars = activeDocs.reduce((sum, d) => sum + d.content.length, 0);
+      let relevantDocs: string[];
+
+      if (
+        settings.contextRouterEnabled &&
+        settings.aiProvider === 'claude' &&
+        claudeClientRef.current &&
+        totalDocChars > DEFAULT_ROUTER_CONFIG.skipThresholdChars &&
+        activeDocs.length > 3
+      ) {
+        // Vermittler-KI: Haiku selects relevant docs, then Opus gets only those
+        console.log(`[Vermittler-KI] Routing aktiviert (${Math.round(totalDocChars / 1000)}K chars, ${activeDocs.length} Dokumente)`);
+        const routerResult = await routeContext(
+          inputText.trim(),
+          currentRoom,
+          documents,
+          claudeClientRef.current.getClient(),
+          settings.user1Name,
+          settings.user2Name,
+        );
+        const selectedIdSet = new Set(routerResult.selectedDocIds);
+        relevantDocs = activeDocs
+          .filter(d => selectedIdSet.has(d.id))
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .map(d => `[${d.title}]\n${d.content}`);
+      } else {
+        // Small KB: send all docs up to limit
+        const MAX_DOC_CHARS = 600000;
+        let docChars = 0;
+        relevantDocs = activeDocs
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .reduce((acc: string[], d) => {
+            const docText = `[${d.title}]\n${d.content}`;
+            if (docChars + docText.length <= MAX_DOC_CHARS) {
+              docChars += docText.length;
+              acc.push(docText);
+            }
+            return acc;
+          }, []);
+      }
 
       // Pass document contents to system prompt so AI has context
       const systemPrompt = getSystemPrompt(
@@ -2592,6 +2621,37 @@ Format:
                       />
                     </div>
                   </div>
+
+                  {/* Context Router / Vermittler-KI */}
+                  {settings.aiProvider === 'claude' && (
+                    <div className="bg-white rounded-xl p-4 shadow">
+                      <h3 className="font-bold text-amber-900 mb-3">Vermittler-KI (Kontext-Router)</h3>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-amber-700">Intelligente Dokumentenauswahl</span>
+                          <button
+                            onClick={() => updateSettings({ contextRouterEnabled: !settings.contextRouterEnabled })}
+                            className={`w-12 h-6 rounded-full transition ${settings.contextRouterEnabled ? 'bg-green-500' : 'bg-gray-300'}`}
+                          >
+                            <div className={`w-5 h-5 bg-white rounded-full shadow transition transform ${settings.contextRouterEnabled ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                          </button>
+                        </div>
+                        <p className="text-xs text-amber-600">
+                          Bei grosser Wissensbasis (&gt;100K Zeichen) waehlt eine schnelle KI (Haiku)
+                          nur die relevanten Dokumente fuer jede Frage aus. Spart Kosten und verbessert
+                          die Antwortqualitaet.
+                        </p>
+                        {!settings.contextRouterEnabled && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                            <p className="text-xs text-amber-800 flex items-start gap-2">
+                              <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                              Deaktiviert: Alle Dokumente werden bei jedem Aufruf gesendet (bis 600K Zeichen).
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                 </div>
               </div>

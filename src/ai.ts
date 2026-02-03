@@ -246,6 +246,10 @@ export class ClaudeClient {
   private client: Anthropic;
   private model: string;
 
+  getClient(): Anthropic {
+    return this.client;
+  }
+
   constructor(apiKey: string, model: string = 'claude-opus-4-5-20251101') {
     // Use env var if key is placeholder or empty
     const actualKey = (apiKey === HARDCODED_API_KEY || !apiKey)

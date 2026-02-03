@@ -25,6 +25,7 @@ export const defaultSettings: Settings = {
   cameraEnabled: false,
   emotionTrackingEnabled: false,
   defaultSessionDuration: 45,
+  contextRouterEnabled: true,
 };
 
 export const defaultAppState: AppState = {
