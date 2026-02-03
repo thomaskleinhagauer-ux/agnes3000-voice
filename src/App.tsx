@@ -579,10 +579,20 @@ function App() {
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .map(d => `[${d.title}]\n${d.content}`);
 
-        // Dokumenten-Verzeichnis: Kompakte Karte ALLER Dokumente für Opus/Sonnet
-        const { indexText } = buildDocumentIndex(documents);
-        documentDirectory = indexText;
-        console.log(`[Vermittler-KI] ${relevantDocs.length} Volltexte + Verzeichnis mit ${activeDocs.length} Eintraegen`);
+        // Dokumenten-Verzeichnis: Kompakte Karte ALLER Dokumente (inkl. Archiv) für Opus/Sonnet
+        const { indexText: activeIndex } = buildDocumentIndex(documents);
+        const archivedDocs = documents.filter(d => d.isArchived);
+        let archiveIndex = '';
+        if (archivedDocs.length > 0) {
+          archiveIndex = '\n\n--- ARCHIVIERTE DOKUMENTE (per [DOK_ANFRAGE:Titel] abrufbar) ---\n' +
+            archivedDocs.map((doc, i) =>
+              `[A${i + 1}] Titel: ${doc.title}\n` +
+              `     Typ: ${doc.type} | Person: ${doc.person || 'beide'} | ${doc.content.length} Zeichen\n` +
+              `     Vorschau: ${doc.content.slice(0, 200).trim()}${doc.content.length > 200 ? '...' : ''}`
+            ).join('\n\n');
+        }
+        documentDirectory = activeIndex + archiveIndex;
+        console.log(`[Vermittler-KI] ${relevantDocs.length} Volltexte + Verzeichnis: ${activeDocs.length} aktiv, ${archivedDocs.length} archiviert`);
       } else {
         // Small KB: send all docs up to limit (no directory needed)
         const MAX_DOC_CHARS = 600000;
@@ -662,16 +672,18 @@ function App() {
           systemPrompt, history, { cachedContext }
         );
 
-        // Dokumenten-Nachlademechanismus: Wenn KI ein Dokument anfordert
+        // Dokumenten-Nachlademechanismus: Wenn KI ein Dokument anfordert (auch aus Archiv)
         const dokRequestMatch = fullResponse.match(/\[DOK_ANFRAGE:([^\]]+)\]/);
         if (dokRequestMatch && useRouter) {
           const requestedTitle = dokRequestMatch[1].trim();
-          const requestedDoc = activeDocs.find(d =>
+          // Suche in ALLEN Dokumenten - aktive UND archivierte
+          const requestedDoc = documents.find(d =>
             d.title.toLowerCase() === requestedTitle.toLowerCase()
           );
           if (requestedDoc) {
-            console.log(`[Vermittler-KI] Dokument nachgeladen: "${requestedDoc.title}" (${requestedDoc.content.length} chars)`);
-            const extendedDocs = [...relevantDocs, `[${requestedDoc.title}]\n${requestedDoc.content}`];
+            const source = requestedDoc.isArchived ? 'Archiv' : 'aktiv';
+            console.log(`[Vermittler-KI] Dokument nachgeladen (${source}): "${requestedDoc.title}" (${requestedDoc.content.length} chars)`);
+            const extendedDocs = [...relevantDocs, `[${requestedDoc.title}${requestedDoc.isArchived ? ' (Archiv)' : ''}]\n${requestedDoc.content}`];
             const extendedCache = buildCachedContext(extendedDocs);
             fullResponse = await claudeClientRef.current.generateText(
               systemPrompt, history, { cachedContext: extendedCache }
