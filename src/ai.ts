@@ -179,8 +179,27 @@ Das Dokument wird dann automatisch nachgeladen und du erhaeltst eine Folgeanfrag
 `;
   }
 
+  // Add honesty instruction when no documents are available
+  if (documents.length === 0 && !documentDirectory) {
+    prompt += `
+WICHTIG - KEINE DOKUMENTE VERFUEGBAR:
+Du hast aktuell KEINEN Zugriff auf Dokumente aus der Wissensbasis.
+Wenn der Nutzer nach spezifischen Informationen aus Dokumenten fragt (z.B. Beziehungsstand,
+chronologische Ereignisse, fruehere Gespraeche), sage EHRLICH:
+"Ich habe aktuell keinen Zugriff auf Dokumente mit diesen Informationen.
+Bitte importiere die relevanten Dokumente in die Wissensbasis oder erzaehle mir davon."
+NIEMALS Fakten, Daten, Jahre oder Ereignisse erfinden wenn du keine Dokumente hast!
+`;
+  }
+
   prompt += `
 Antworte IMMER auf Deutsch. Sei warm, empathisch und professionell.
+
+HALLUZINATIONS-VERBOT:
+Wenn du nach konkreten Fakten, Daten, Jahren oder Ereignissen gefragt wirst,
+die du NICHT in den bereitgestellten Dokumenten findest, sage EHRLICH dass du
+diese Information nicht hast. NIEMALS Daten oder Fakten erfinden!
+
 Füge am Ende deiner Antwort einen versteckten Emotions-Tag hinzu: [EMOTION:type]
 Mögliche Typen: neutral, empathetic, encouraging, concerned, thoughtful, proud, sad
 `;
