@@ -15,7 +15,7 @@ export const defaultSettings: Settings = {
   paarRoomPassword: '',
   aiProvider: 'claude',
   claudeApiKey: 'agnes3001',
-  claudeModel: 'claude-opus-4-5-20251101',
+  claudeModel: 'claude-opus-4-6',
   geminiApiKey: 'agnes3001',
   ttsEnabled: true,
   voicePaar: 'Zephyr',

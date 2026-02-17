@@ -10,9 +10,12 @@ import { Document, RoomType } from './types';
 // Constants & Config
 // ================================
 
-// Rate Limits für verschiedene API Tiers
+// Rate Limits für verschiedene API Tiers (korrigiert Feb 2026 laut Account-Seite)
+// WICHTIG: Cache Writes ZÄHLEN zum Rate Limit, Cache Reads NICHT!
+// → Erste Nachricht pro Session (Cache Write) ist der Engpass
+// → Nachrichten 2+ nutzen Cache Reads = kein Rate-Limit-Problem
 export const RATE_LIMITS = {
-  tier1: { tokensPerMinute: 40_000, name: 'Tier 1 ($5+)' },
+  tier1: { tokensPerMinute: 30_000, name: 'Tier 1 ($5+)' },
   tier2: { tokensPerMinute: 80_000, name: 'Tier 2 ($40+)' },
   tier3: { tokensPerMinute: 160_000, name: 'Tier 3 ($200+)' },
   tier4: { tokensPerMinute: 400_000, name: 'Tier 4 ($400+)' },
@@ -21,9 +24,26 @@ export const RATE_LIMITS = {
 // Konservative Schätzung: 4 chars = 1 token
 export const CHARS_PER_TOKEN = 4;
 
-// Standard-Limit (Tier 1 mit Puffer)
-export const DEFAULT_TOKEN_LIMIT = 35_000; // Unter 40K für Sicherheit
-export const TURBO_TOKEN_LIMIT = 150_000; // Für Tier 3+ oder TURBO-Modus
+// Standard-Limit (Tier 1 mit Puffer unter 30K Rate Limit)
+export const DEFAULT_TOKEN_LIMIT = 20_000;
+
+// TURBO Token-Limits pro Tier (muss unter Rate Limit der ersten Nachricht bleiben!)
+// Erste Nachricht = Cache Write = zählt zum Rate Limit
+// Ab Nachricht 2 = Cache Read = zählt NICHT → effektiv unbegrenzt
+export const TURBO_TOKEN_LIMITS = {
+  tier1: 25_000,   // Unter 30K/min - konservativ für Tier 1
+  tier2: 70_000,   // Unter 80K/min
+  tier3: 150_000,  // Unter 160K/min
+  tier4: 180_000,  // Voller 4.6-Kontext, unter 200K Schwelle!
+};
+
+// Rückwärts-kompatibel: Default TURBO Limit (wird per getTurboTokenLimit überschrieben)
+export const TURBO_TOKEN_LIMIT = TURBO_TOKEN_LIMITS.tier1;
+
+// Hilfsfunktion: Gibt das optimale TURBO-Limit für den API-Tier zurück
+export function getTurboTokenLimit(tier: keyof typeof RATE_LIMITS): number {
+  return TURBO_TOKEN_LIMITS[tier] || TURBO_TOKEN_LIMITS.tier1;
+}
 
 // Chunk-Größen
 export const MAX_CHUNK_TOKENS = 8_000; // ~32K chars pro Chunk
@@ -290,7 +310,7 @@ export async function selectDocuments(
   config: ArchivarConfig
 ): Promise<ArchivarResult> {
   const startTime = performance.now();
-  const tokenLimit = config.turboMode ? TURBO_TOKEN_LIMIT : config.tokenLimit;
+  const tokenLimit = config.turboMode ? getTurboTokenLimit(config.apiTier) : config.tokenLimit;
 
   // Build chunk index for Haiku
   const chunkIndex = allChunks.map((chunk, i) =>
@@ -404,10 +424,22 @@ Antworte NUR mit JSON:
 // Cost Calculation
 // ================================
 
-// Anthropic Preise (Stand Feb 2026)
+// Anthropic Preise (Stand Feb 2026 - aktualisiert für 4.6 Release)
 const PRICING = {
-  'claude-sonnet-4-5': {
+  'claude-opus-4-6': {
+    input: 5.00 / 1_000_000,      // $5/MTok
+    output: 25.00 / 1_000_000,    // $25/MTok
+    cacheWrite: 6.25 / 1_000_000, // $6.25/MTok (1.25x input)
+    cacheRead: 0.50 / 1_000_000,  // $0.50/MTok (0.1x input)
+  },
+  'claude-sonnet-4-6': {
     input: 3.00 / 1_000_000,      // $3/MTok
+    output: 15.00 / 1_000_000,    // $15/MTok
+    cacheWrite: 3.75 / 1_000_000, // $3.75/MTok
+    cacheRead: 0.30 / 1_000_000,  // $0.30/MTok
+  },
+  'claude-sonnet-4-5': {
+    input: 3.00 / 1_000_000,      // $3/MTok (Legacy)
     output: 15.00 / 1_000_000,    // $15/MTok
     cacheWrite: 3.75 / 1_000_000, // $3.75/MTok
     cacheRead: 0.30 / 1_000_000,  // $0.30/MTok
@@ -425,7 +457,7 @@ export function calculateCost(
   isTurbo: boolean,
   assumeCacheHit: boolean = false
 ): CostEstimate {
-  const pricing = PRICING['claude-sonnet-4-5'];
+  const pricing = PRICING['claude-opus-4-6'];
   const outputTokens = 1000; // Geschätzt
 
   let cacheWriteTokens = 0;
@@ -458,12 +490,23 @@ export async function fetchCurrentPricing(): Promise<string> {
   // In einer echten Implementierung könnte hier die API gecheckt werden
   // Für jetzt: Statische Preise zurückgeben
   return `
-💰 **Aktuelle Kosten (Sonnet 4.5)**:
-- Standard: ~$0.01-0.02 pro Nachricht (35K tokens)
-- TURBO: ~$0.04-0.05 pro Nachricht (150K tokens)
-- Mit Cache: 90% günstiger nach erster Nachricht!
+💰 **Aktuelle Kosten (Opus 4.6 / Sonnet 4.6)**:
 
-Dein API-Tier bestimmt das Rate-Limit, nicht die Kosten.
+📊 **Tier 1** (dein aktueller Tier, 30K/min):
+- Standard: ~$0.02-0.03 pro Nachricht (20K tokens)
+- TURBO: ~$0.05-0.08 pro Nachricht (25K tokens)
+- 1h Paar-Session (Opus): ~$4-5 | (Sonnet): ~$2.50-3
+
+📊 **Tier 3+** (ab $200 Einzahlung, 160K/min):
+- TURBO: ~$0.19 pro Nachricht (150K cached context)
+- 1h Paar-Session (Opus): ~$8-11 | (Sonnet): ~$6-7
+
+📊 **Tier 4** (ab $400, 400K/min):
+- TURBO: ~$0.23 pro Nachricht (180K cached context!)
+- Agnes hat Zugriff auf fast 1/3 der gesamten Wissensbasis pro Nachricht
+
+⚡ Cache: 90% günstiger ab Nachricht 2!
+Modell umschaltbar in den Einstellungen (Opus für Paar, Sonnet für Einzel/Test).
 `.trim();
 }
 

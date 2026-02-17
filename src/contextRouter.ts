@@ -39,22 +39,56 @@ export interface ContextRouterConfig {
 export const DEFAULT_ROUTER_CONFIG: ContextRouterConfig = {
   enabled: true,
   routerModel: 'claude-haiku-3-5-20241022',
-  skipThresholdChars: 20_000,   // 20K chars (~5K tokens) - aktiviere Router früher!
-  maxSelectedChars: 120_000,    // 120K chars (~30K tokens) - UNTER 50K Token-Limit!
+  skipThresholdChars: 10_000,   // 10K chars (~2.5K tokens) - aktiviere Router früher!
+  maxSelectedChars: 60_000,     // 60K chars (~15K tokens) - UNTER 30K Token-Limit!
   maxIndexPreviewChars: 100,    // kürzere Previews für schnellere Verarbeitung
 };
 
-// TURBO Modus Config (für Tier 3+ User)
-export const TURBO_ROUTER_CONFIG: ContextRouterConfig = {
-  enabled: true,
-  routerModel: 'claude-haiku-3-5-20241022',
-  skipThresholdChars: 100_000,
-  maxSelectedChars: 500_000,    // ~125K tokens für TURBO
-  maxIndexPreviewChars: 150,
+// TURBO Modus Configs pro Tier - angepasst für Opus/Sonnet 4.6 (200K Fenster)
+// WICHTIG: Erste Nachricht = Cache Write = zählt zum Rate Limit!
+// → maxSelectedChars muss zum Tier-Rate-Limit passen
+export const TURBO_ROUTER_CONFIGS: Record<string, ContextRouterConfig> = {
+  tier1: {
+    enabled: true,
+    routerModel: 'claude-haiku-3-5-20241022',
+    skipThresholdChars: 10_000,
+    maxSelectedChars: 100_000,    // ~25K tokens (unter 30K/min Rate Limit)
+    maxIndexPreviewChars: 150,
+  },
+  tier2: {
+    enabled: true,
+    routerModel: 'claude-haiku-3-5-20241022',
+    skipThresholdChars: 50_000,
+    maxSelectedChars: 280_000,    // ~70K tokens (unter 80K/min Rate Limit)
+    maxIndexPreviewChars: 150,
+  },
+  tier3: {
+    enabled: true,
+    routerModel: 'claude-haiku-3-5-20241022',
+    skipThresholdChars: 100_000,
+    maxSelectedChars: 600_000,    // ~150K tokens (unter 160K/min Rate Limit)
+    maxIndexPreviewChars: 150,
+  },
+  tier4: {
+    enabled: true,
+    routerModel: 'claude-haiku-3-5-20241022',
+    skipThresholdChars: 100_000,
+    maxSelectedChars: 720_000,    // ~180K tokens (voller 4.6-Kontext, unter 200K Schwelle!)
+    maxIndexPreviewChars: 150,
+  },
 };
 
-// Hard limit for total context (docs + strategies + directory)
-export const MAX_TOTAL_CONTEXT_CHARS = 400_000; // ~100K tokens, leaves 100K for system+history
+// Rückwärts-kompatibel: Default TURBO Config (Tier 1)
+export const TURBO_ROUTER_CONFIG: ContextRouterConfig = TURBO_ROUTER_CONFIGS.tier1;
+
+// Hilfsfunktion
+export function getTurboRouterConfig(tier: string): ContextRouterConfig {
+  return TURBO_ROUTER_CONFIGS[tier] || TURBO_ROUTER_CONFIGS.tier1;
+}
+
+// Hard limit for total context - passt sich an den Tier an
+// Tier 1: ~25K tokens | Tier 4: ~180K tokens
+export const MAX_TOTAL_CONTEXT_CHARS = 720_000; // Absolute Obergrenze, wird durch Tier-Config begrenzt
 
 // ================================
 // Index Builder

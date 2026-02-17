@@ -57,9 +57,9 @@ import {
   MAX_BACKPACK_SIZE,
 } from './knowledgeOptimizer';
 
-import { routeContext, buildDocumentIndex, DEFAULT_ROUTER_CONFIG, TURBO_ROUTER_CONFIG, MAX_TOTAL_CONTEXT_CHARS } from './contextRouter';
+import { routeContext, buildDocumentIndex, DEFAULT_ROUTER_CONFIG, TURBO_ROUTER_CONFIG, TURBO_ROUTER_CONFIGS, getTurboRouterConfig, MAX_TOTAL_CONTEXT_CHARS } from './contextRouter';
 import { TurboButton, CostDisplay } from './TurboButton';
-import { chunkAllDocuments, selectDocuments, DEFAULT_TOKEN_LIMIT, TURBO_TOKEN_LIMIT, DocumentChunk } from './archivar';
+import { chunkAllDocuments, selectDocuments, DEFAULT_TOKEN_LIMIT, TURBO_TOKEN_LIMIT, TURBO_TOKEN_LIMITS, getTurboTokenLimit, DocumentChunk } from './archivar';
 
 // ================================
 // Constants
@@ -583,7 +583,9 @@ function App() {
 
       if (useRouter) {
         // Vermittler-KI: Haiku selects relevant docs (prefers archived/verified)
-        console.log(`[Vermittler-KI] Routing aktiviert (${Math.round(totalDocChars / 1000)}K chars, ${allDocs.length} Dokumente)`);
+        // Tier-abhängige Config: Tier 1 = 25K, Tier 4 = 180K Dokument-Budget
+        const activeRouterConfig = turboEnabled ? getTurboRouterConfig('tier1') : DEFAULT_ROUTER_CONFIG;
+        console.log(`[Vermittler-KI] Routing aktiviert (${Math.round(totalDocChars / 1000)}K chars, ${allDocs.length} Dokumente, maxChars: ${Math.round(activeRouterConfig.maxSelectedChars / 1000)}K)`);
         const routerResult = await routeContext(
           inputText.trim(),
           currentRoom,
@@ -591,6 +593,7 @@ function App() {
           claudeClientRef.current!.getClient(),
           settings.user1Name,
           settings.user2Name,
+          activeRouterConfig,
         );
         const selectedIdSet = new Set(routerResult.selectedDocIds);
         relevantDocs = allDocs
@@ -2697,8 +2700,10 @@ Format:
                               onChange={e => updateSettings({ claudeModel: e.target.value as Settings['claudeModel'] })}
                               className="w-full mt-1 p-2 border border-amber-200 rounded-lg"
                             >
-                              <option value="claude-opus-4-5-20251101">Claude Opus 4.5</option>
-                              <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5</option>
+                              <option value="claude-opus-4-6">Claude Opus 4.6 (Paar-Therapie)</option>
+                              <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (Einzel/Test)</option>
+                              <option value="claude-opus-4-5-20251101">Claude Opus 4.5 (Legacy)</option>
+                              <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5 (Legacy)</option>
                             </select>
                           </div>
                         </>

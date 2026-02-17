@@ -290,7 +290,7 @@ export class ClaudeClient {
     return this.client;
   }
 
-  constructor(apiKey: string, model: string = 'claude-opus-4-5-20251101') {
+  constructor(apiKey: string, model: string = 'claude-opus-4-6') {
     // Use env var if key is placeholder or empty
     const actualKey = (apiKey === HARDCODED_API_KEY || !apiKey)
       ? import.meta.env.VITE_ANTHROPIC_API_KEY || apiKey
