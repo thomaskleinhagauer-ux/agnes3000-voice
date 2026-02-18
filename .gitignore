@@ -8,9 +8,10 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+# dist/ is committed for Railway (pre-built frontend)
 dist-ssr
-dist-*
+dist-new
+dist-prod
 build
 *.local
 *.zip
