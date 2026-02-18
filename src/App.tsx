@@ -65,6 +65,13 @@ import { chunkAllDocuments, selectDocuments, DEFAULT_TOKEN_LIMIT, TURBO_TOKEN_LI
 // Constants
 // ================================
 
+// Safe date formatting (handles undefined/null/0 timestamps)
+const formatDocDate = (ts: number | undefined | null): string => {
+  if (!ts || isNaN(ts)) return 'unbekannt';
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? 'unbekannt' : d.toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
+};
+
 // iOS Detection for TTS fallback
 const isIOS = (() => {
   const ua = navigator.userAgent;
@@ -659,8 +666,8 @@ function App() {
           .filter(d => selectedIdSet.has(d.id))
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .map(d => {
-            const created = new Date(d.createdAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
-            const updated = new Date(d.updatedAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
+            const created = formatDocDate(d.createdAt);
+            const updated = formatDocDate(d.updatedAt);
             return `[${d.title}${d.isArchived ? ' (Archiv/Verifiziert)' : ''} | Erstellt: ${created} | Aktualisiert: ${updated}]\n${d.content}`;
           });
 
@@ -677,8 +684,8 @@ function App() {
         relevantDocs = allDocs
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .reduce((acc: string[], d) => {
-            const created = new Date(d.createdAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
-            const updated = new Date(d.updatedAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
+            const created = formatDocDate(d.createdAt);
+            const updated = formatDocDate(d.updatedAt);
             const docText = `[${d.title}${d.isArchived ? ' (Archiv/Verifiziert)' : ''} | Erstellt: ${created} | Aktualisiert: ${updated}]\n${d.content}`;
             if (docChars + docText.length <= MAX_DOC_CHARS) {
               docChars += docText.length;
@@ -852,8 +859,8 @@ function App() {
           if (requestedDoc) {
             const source = requestedDoc.isArchived ? 'Archiv' : 'aktiv';
             console.log(`[Vermittler-KI] Dokument nachgeladen (${source}): "${requestedDoc.title}" (${requestedDoc.content.length} chars)`);
-            const reqCreated = new Date(requestedDoc.createdAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
-            const reqUpdated = new Date(requestedDoc.updatedAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
+            const reqCreated = formatDocDate(requestedDoc.createdAt);
+            const reqUpdated = formatDocDate(requestedDoc.updatedAt);
             const extendedDocs = [...relevantDocs, `[${requestedDoc.title}${requestedDoc.isArchived ? ' (Archiv)' : ''} | Erstellt: ${reqCreated} | Aktualisiert: ${reqUpdated}]\n${requestedDoc.content}`];
             const extendedCache = buildCachedContext(extendedDocs);
             // Re-generate with doc loaded (non-streaming, rare case)
@@ -2225,7 +2232,7 @@ Format:
                             <h3 className={`font-medium truncate ${showArchived ? 'text-gray-600' : 'text-amber-900'}`}>{doc.title}</h3>
                           </div>
                           <p className="text-xs text-amber-600 mt-1">
-                            {new Date(doc.updatedAt).toLocaleDateString('de-DE')}
+                            {doc.updatedAt ? new Date(doc.updatedAt).toLocaleDateString('de-DE') : 'Kein Datum'}
                           </p>
                         </div>
                         <div className="flex gap-1">
