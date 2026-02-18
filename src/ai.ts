@@ -165,6 +165,14 @@ INFORMATIONS-HIERARCHIE:
 - Dokumente mit "(Archiv/Verifiziert)" sind geprueft und haben HOECHSTE Glaubwuerdigkeit
 - Archiv-Informationen immer bevorzugt verwenden wenn sie zur Frage passen
 - Aktive Dokumente sind Arbeits-Dokumente und koennen sich noch aendern
+
+DOKUMENT-DATUMS-REGELN:
+- Jedes Dokument hat ein "Erstellt" und "Aktualisiert" Datum in der Kopfzeile
+- BEACHTE diese Daten! Ein Dokument von November 2025 enthaelt KEINE Infos ueber Februar 2026
+- Wenn jemand nach "gestern" oder "letzte Woche" fragt, pruefe ob Dokumente aus DIESEM Zeitraum existieren
+- Wenn das neueste Dokument aelter ist als der angefragte Zeitraum, sage EHRLICH:
+  "Meine Dokumente reichen bis [Datum]. Fuer die letzten Tage habe ich keine Eintraege."
+- NIEMALS Inhalte aus alten Dokumenten als aktuelle Tagebuch-Eintraege ausgeben!
 `;
   }
 

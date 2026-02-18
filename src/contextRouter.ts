@@ -19,6 +19,8 @@ export interface DocumentIndexEntry {
   charCount: number;
   preview: string;
   isArchived: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface RouterResult {
@@ -108,14 +110,19 @@ export function buildDocumentIndex(
     isArchived: !!doc.isArchived,
     preview: doc.content.slice(0, config.maxIndexPreviewChars).trim() +
              (doc.content.length > config.maxIndexPreviewChars ? '...' : ''),
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
   }));
 
   const totalChars = documents.reduce((sum, d) => sum + d.content.length, 0);
+
+  const formatDate = (ts: number) => new Date(ts).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
 
   const indexText = index.map((entry, i) =>
     `[${i + 1}] ID: ${entry.id}${entry.isArchived ? ' [ARCHIV - VERIFIZIERT]' : ''}\n` +
     `    Titel: ${entry.title}\n` +
     `    Typ: ${entry.type} | Person: ${entry.person || 'beide'} | ${entry.charCount} Zeichen\n` +
+    `    Erstellt: ${formatDate(entry.createdAt)} | Aktualisiert: ${formatDate(entry.updatedAt)}\n` +
     `    Vorschau: ${entry.preview}`
   ).join('\n\n');
 

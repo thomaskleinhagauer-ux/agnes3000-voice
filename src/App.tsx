@@ -658,7 +658,11 @@ function App() {
         relevantDocs = allDocs
           .filter(d => selectedIdSet.has(d.id))
           .sort((a, b) => b.updatedAt - a.updatedAt)
-          .map(d => `[${d.title}${d.isArchived ? ' (Archiv/Verifiziert)' : ''}]\n${d.content}`);
+          .map(d => {
+            const created = new Date(d.createdAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
+            const updated = new Date(d.updatedAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
+            return `[${d.title}${d.isArchived ? ' (Archiv/Verifiziert)' : ''} | Erstellt: ${created} | Aktualisiert: ${updated}]\n${d.content}`;
+          });
 
         // Dokumenten-Verzeichnis: Karte ALLER Dokumente (aktiv + archiviert)
         const { indexText } = buildDocumentIndex(documents);
@@ -673,7 +677,9 @@ function App() {
         relevantDocs = allDocs
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .reduce((acc: string[], d) => {
-            const docText = `[${d.title}${d.isArchived ? ' (Archiv/Verifiziert)' : ''}]\n${d.content}`;
+            const created = new Date(d.createdAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
+            const updated = new Date(d.updatedAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
+            const docText = `[${d.title}${d.isArchived ? ' (Archiv/Verifiziert)' : ''} | Erstellt: ${created} | Aktualisiert: ${updated}]\n${d.content}`;
             if (docChars + docText.length <= MAX_DOC_CHARS) {
               docChars += docText.length;
               acc.push(docText);
@@ -846,7 +852,9 @@ function App() {
           if (requestedDoc) {
             const source = requestedDoc.isArchived ? 'Archiv' : 'aktiv';
             console.log(`[Vermittler-KI] Dokument nachgeladen (${source}): "${requestedDoc.title}" (${requestedDoc.content.length} chars)`);
-            const extendedDocs = [...relevantDocs, `[${requestedDoc.title}${requestedDoc.isArchived ? ' (Archiv)' : ''}]\n${requestedDoc.content}`];
+            const reqCreated = new Date(requestedDoc.createdAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
+            const reqUpdated = new Date(requestedDoc.updatedAt).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' });
+            const extendedDocs = [...relevantDocs, `[${requestedDoc.title}${requestedDoc.isArchived ? ' (Archiv)' : ''} | Erstellt: ${reqCreated} | Aktualisiert: ${reqUpdated}]\n${requestedDoc.content}`];
             const extendedCache = buildCachedContext(extendedDocs);
             // Re-generate with doc loaded (non-streaming, rare case)
             fullResponse = await claudeClientRef.current.generateText(
