@@ -107,9 +107,13 @@ export interface Settings {
 
   // Voice settings
   ttsEnabled: boolean;
+  ttsSpeed: number; // 0.5 - 2.0
   voicePaar: string;
   voiceTom: string;
   voiceLisa: string;
+
+  // Test mode (cheap models)
+  testMode: boolean;
 
   // Therapy school
   therapySchool: TherapySchool;

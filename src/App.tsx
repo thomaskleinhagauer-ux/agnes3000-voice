@@ -198,11 +198,13 @@ function App() {
   // Initialize AI clients - always try to init, clients handle env var fallback
   useEffect(() => {
     if (settings.aiProvider === 'claude') {
-      claudeClientRef.current = new ClaudeClient(settings.claudeApiKey || 'agnes3001', settings.claudeModel);
+      // Test mode: use Haiku for cheap testing
+      const model = settings.testMode ? 'claude-haiku-4-5-20251001' : settings.claudeModel;
+      claudeClientRef.current = new ClaudeClient(settings.claudeApiKey || 'agnes3001', model);
     }
-    // Always init Gemini for TTS
-    geminiClientRef.current = new GeminiClient(settings.geminiApiKey || 'agnes3001');
-  }, [settings.aiProvider, settings.claudeApiKey, settings.claudeModel, settings.geminiApiKey]);
+    // Always init Gemini for TTS (and test mode chat)
+    geminiClientRef.current = new GeminiClient(settings.geminiApiKey || 'agnes3001', settings.testMode);
+  }, [settings.aiProvider, settings.claudeApiKey, settings.claudeModel, settings.geminiApiKey, settings.testMode]);
 
   // Check for restore flag on mount
   useEffect(() => {
@@ -548,6 +550,7 @@ function App() {
 
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
+      source.playbackRate.value = settings.ttsSpeed || 1.0;
       source.connect(ctx.destination);
       source.onended = () => setIsSpeaking(false);
       source.start();
@@ -1633,12 +1636,16 @@ Format:
                         {currentRoom === 'paar' ? 'Paar-Raum' : currentRoom === 'tom' ? settings.user1Name : settings.user2Name}
                       </h2>
                       <p className="text-[10px] text-amber-500 font-mono">
-                        Chat: {settings.aiProvider === 'claude' ? settings.claudeModel : 'gemini-3-flash'} · TTS: gemini-2.5-flash-tts · Voice: {
+                        {settings.testMode && <span className="text-orange-500 font-bold">TEST </span>}
+                        Chat: {settings.testMode
+                          ? (settings.aiProvider === 'claude' ? 'haiku-4.5' : 'gemini-2.5-flash')
+                          : (settings.aiProvider === 'claude' ? settings.claudeModel : 'gemini-3-flash')
+                        } · Voice: {
                           currentRoom === 'paar' ? settings.voicePaar :
                           currentRoom === 'tom' ? settings.voiceTom :
                           currentRoom === 'lisa' ? settings.voiceLisa :
                           settings.voicePaar
-                        }
+                        } · Tempo: {settings.ttsSpeed || 1.0}×
                       </p>
                       {activeSession && (
                         <p className="text-xs text-amber-600">Ziel: {activeSession.goal}</p>
@@ -2759,6 +2766,23 @@ Format:
                           className="w-full mt-1 p-2 border border-amber-200 rounded-lg"
                         />
                       </div>
+
+                      {/* Test Mode Toggle */}
+                      <div className="mt-3 pt-3 border-t border-amber-100">
+                        <button
+                          onClick={() => updateSettings({ testMode: !settings.testMode })}
+                          className={`w-full py-2 rounded-lg flex items-center justify-center gap-2 text-sm ${
+                            settings.testMode ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {settings.testMode ? '🧪 Testmodus AN' : '🧪 Testmodus'}
+                        </button>
+                        {settings.testMode && (
+                          <p className="text-[10px] text-orange-600 mt-1 text-center">
+                            Chat: {settings.aiProvider === 'claude' ? 'Haiku 4.5' : 'Gemini 2.5 Flash'} (billig) · TTS bleibt gleich
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -2776,10 +2800,30 @@ Format:
                         {settings.ttsEnabled ? 'Aktiviert' : 'Deaktiviert'}
                       </button>
 
+                      {settings.ttsEnabled && (
+                        <div>
+                          <label className="text-sm text-amber-700">Tempo: {(settings.ttsSpeed || 1.0).toFixed(1)}×</label>
+                          <input
+                            type="range"
+                            min="0.5"
+                            max="2.0"
+                            step="0.1"
+                            value={settings.ttsSpeed || 1.0}
+                            onChange={e => updateSettings({ ttsSpeed: parseFloat(e.target.value) })}
+                            className="w-full mt-1 accent-amber-600"
+                          />
+                          <div className="flex justify-between text-[10px] text-amber-500">
+                            <span>0.5× langsam</span>
+                            <span>1.0× normal</span>
+                            <span>2.0× schnell</span>
+                          </div>
+                        </div>
+                      )}
+
                       {settings.ttsEnabled && isIOS && (
                         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                           <p className="text-xs text-amber-800">
-                            ℹ️ <strong>iOS:</strong> Sprachausgabe nutzt vereinfachte Wiedergabe (HTMLAudioElement).
+                            iOS: Sprachausgabe nutzt vereinfachte Wiedergabe (HTMLAudioElement).
                           </p>
                         </div>
                       )}

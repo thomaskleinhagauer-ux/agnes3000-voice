@@ -465,12 +465,14 @@ export class ClaudeClient {
 
 export class GeminiClient {
   private apiKey: string;
+  private testMode: boolean;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, testMode: boolean = false) {
     // Use env var if key is placeholder or empty
     this.apiKey = (apiKey === HARDCODED_API_KEY || !apiKey)
       ? import.meta.env.VITE_GEMINI_API_KEY || apiKey
       : apiKey;
+    this.testMode = testMode;
   }
 
   // Strip markdown and limit text length for TTS
@@ -575,8 +577,9 @@ export class GeminiClient {
         systemPrompt = prompt.slice(0, MAX_GEMINI_SYSTEM_CHARS) + '\n\n[System prompt gekürzt wegen Längenbeschränkung]';
       }
 
+      const chatModel = this.testMode ? 'gemini-2.5-flash' : 'gemini-3-flash-preview';
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${chatModel}:generateContent?key=${this.apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

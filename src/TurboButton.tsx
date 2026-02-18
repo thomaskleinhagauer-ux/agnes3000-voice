@@ -68,7 +68,7 @@ export function TurboButton({
 
       {/* Cost Info Popup */}
       {showCostInfo && (
-        <div className="absolute top-full left-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-50">
+        <div className="absolute top-full right-0 mt-2 w-72 sm:w-80 bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-50">
           <div className="flex justify-between items-start mb-3">
             <h3 className="font-bold text-gray-900 flex items-center gap-2">
               <Info size={16} />
