@@ -200,14 +200,38 @@ Antworte NUR im folgenden JSON-Format:
 // Main Router Function
 // ================================
 
+// Gemini-based router call (for when Claude is not available)
+async function routeWithGemini(
+  geminiApiKey: string,
+  systemPrompt: string,
+  userMessage: string
+): Promise<string> {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: { maxOutputTokens: 1024 },
+      }),
+    }
+  );
+  if (!response.ok) throw new Error(`Gemini router ${response.status}`);
+  const data = await response.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
 export async function routeContext(
   userMessage: string,
   room: RoomType,
   documents: Document[],
-  anthropicClient: Anthropic,
+  anthropicClient: Anthropic | null,
   user1Name: string,
   user2Name: string,
-  config: ContextRouterConfig = DEFAULT_ROUTER_CONFIG
+  config: ContextRouterConfig = DEFAULT_ROUTER_CONFIG,
+  geminiApiKey?: string
 ): Promise<RouterResult> {
   const startTime = performance.now();
 
@@ -227,27 +251,37 @@ export async function routeContext(
       room, user1Name, user2Name, indexText, config.maxSelectedChars
     );
 
-    const response = await anthropicClient.messages.create({
-      model: config.routerModel,
-      max_tokens: 1024,
-      system: [
-        {
-          type: 'text',
-          text: systemPrompt,
-          cache_control: { type: 'ephemeral' },
-        }
-      ],
-      messages: [
-        { role: 'user', content: userMessage }
-      ],
-    });
+    let responseText: string;
 
-    const textContent = response.content.find(c => c.type === 'text');
-    if (!textContent || textContent.type !== 'text') {
-      throw new Error('No text response from router');
+    if (anthropicClient) {
+      // Use Claude Haiku as router
+      const response = await anthropicClient.messages.create({
+        model: config.routerModel,
+        max_tokens: 1024,
+        system: [
+          {
+            type: 'text',
+            text: systemPrompt,
+            cache_control: { type: 'ephemeral' },
+          }
+        ],
+        messages: [
+          { role: 'user', content: userMessage }
+        ],
+      });
+      const textContent = response.content.find(c => c.type === 'text');
+      if (!textContent || textContent.type !== 'text') {
+        throw new Error('No text response from router');
+      }
+      responseText = textContent.text;
+    } else if (geminiApiKey) {
+      // Use Gemini 2.5 Flash as router (free, fast)
+      responseText = await routeWithGemini(geminiApiKey, systemPrompt, userMessage);
+    } else {
+      throw new Error('No AI client available for routing');
     }
 
-    const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('Router response did not contain valid JSON');
     }

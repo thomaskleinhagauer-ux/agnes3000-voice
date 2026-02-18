@@ -658,25 +658,25 @@ function App() {
       const totalDocChars = allDocs.reduce((sum, d) => sum + d.content.length, 0);
       let relevantDocs: string[];
       let documentDirectory: string | undefined;
+      // Context Router works with Claude (Haiku) OR Gemini (2.5 Flash)
       const useRouter = settings.contextRouterEnabled &&
-        settings.aiProvider === 'claude' &&
-        claudeClientRef.current &&
+        (claudeClientRef.current || geminiClientRef.current) &&
         totalDocChars > DEFAULT_ROUTER_CONFIG.skipThresholdChars &&
         allDocs.length > 3;
 
       if (useRouter) {
-        // Vermittler-KI: Haiku selects relevant docs (prefers archived/verified)
-        // Tier-abhängige Config: Tier 1 = 25K, Tier 4 = 180K Dokument-Budget
+        // Vermittler-KI: Haiku/Flash selects relevant docs
         const activeRouterConfig = turboEnabled ? getTurboRouterConfig('tier1') : DEFAULT_ROUTER_CONFIG;
-        console.log(`[Vermittler-KI] Routing aktiviert (${Math.round(totalDocChars / 1000)}K chars, ${allDocs.length} Dokumente, maxChars: ${Math.round(activeRouterConfig.maxSelectedChars / 1000)}K)`);
+        console.log(`[Vermittler-KI] Routing aktiviert (${Math.round(totalDocChars / 1000)}K chars, ${allDocs.length} Dokumente, Router: ${claudeClientRef.current ? 'Haiku' : 'Gemini Flash'})`);
         const routerResult = await routeContext(
           inputText.trim(),
           currentRoom,
           documents,
-          claudeClientRef.current!.getClient(),
+          claudeClientRef.current?.getClient() || null,
           settings.user1Name,
           settings.user2Name,
           activeRouterConfig,
+          settings.geminiApiKey || undefined,
         );
         const selectedIdSet = new Set(routerResult.selectedDocIds);
         relevantDocs = allDocs
