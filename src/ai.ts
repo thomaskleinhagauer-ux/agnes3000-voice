@@ -587,7 +587,9 @@ export class GeminiClient {
       contents.push({ role: 'user', parts: [{ text: 'Start' }] });
     }
 
-    const MAX_GEMINI_SYSTEM_CHARS = 30000;
+    // Gemini 3 Flash / 2.5 Flash support up to 1M tokens (~4M chars)
+    // Allow up to 500K chars for system prompt (documents + instructions)
+    const MAX_GEMINI_SYSTEM_CHARS = 500000;
     let systemPrompt = prompt;
     if (prompt.length > MAX_GEMINI_SYSTEM_CHARS) {
       console.warn(`[Gemini] System prompt too long (${prompt.length} chars), truncating to ${MAX_GEMINI_SYSTEM_CHARS}`);

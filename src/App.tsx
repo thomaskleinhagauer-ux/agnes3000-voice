@@ -826,12 +826,11 @@ function App() {
       // Streaming: buffer sentences and fire TTS for each
       let sentenceBuffer = '';
       let sentenceCount = 0;
-      const FIRST_CHUNK_MIN = 40; // Chars before first TTS fire (get speaking fast)
-      const BATCH_CHUNK_MIN = 120; // Chars for subsequent chunks (batch for efficiency)
 
       const flushSentence = (text: string) => {
-        if (!wantTTS || !text.trim()) return;
+        if (!wantTTS || !text.trim() || text.trim().length < 3) return;
         sentenceCount++;
+        console.log(`[TTS] Flush sentence #${sentenceCount}: ${text.trim().length} chars`);
         enqueueTTSChunk(text, ttsVoice);
       };
 
@@ -841,32 +840,55 @@ function App() {
         if (!wantTTS) return;
 
         sentenceBuffer += chunk;
-        // Find sentence boundaries (. ! ? followed by space or end)
-        const minChars = sentenceCount === 0 ? FIRST_CHUNK_MIN : BATCH_CHUNK_MIN;
-        const boundaryRegex = /[.!?]+[\s\n]+/g;
-        let lastBoundary = -1;
-        let match;
-        while ((match = boundaryRegex.exec(sentenceBuffer)) !== null) {
-          if (match.index + match[0].length >= minChars || sentenceBuffer.length >= minChars) {
-            lastBoundary = match.index + match[0].length;
+        // Find sentence boundaries: . ! ? followed by space, newline, or markdown
+        // Also split on double newline (paragraph break)
+        const minChars = sentenceCount === 0 ? 30 : 80;
+        // Look for the LAST valid boundary that gives us enough text
+        let bestSplit = -1;
+        for (let i = 0; i < sentenceBuffer.length; i++) {
+          const ch = sentenceBuffer[i];
+          if ((ch === '.' || ch === '!' || ch === '?') && i > 10) {
+            const next = sentenceBuffer[i + 1];
+            if (!next || next === ' ' || next === '\n' || next === '*' || next === '"') {
+              if (i + 1 >= minChars) bestSplit = i + 1;
+            }
+          }
+          // Also split on double newline (paragraph)
+          if (ch === '\n' && sentenceBuffer[i + 1] === '\n' && i >= minChars) {
+            bestSplit = i + 1;
           }
         }
-        if (lastBoundary > 0 && sentenceBuffer.slice(0, lastBoundary).trim().length >= minChars) {
-          flushSentence(sentenceBuffer.slice(0, lastBoundary));
-          sentenceBuffer = sentenceBuffer.slice(lastBoundary);
+        if (bestSplit > 0) {
+          flushSentence(sentenceBuffer.slice(0, bestSplit));
+          sentenceBuffer = sentenceBuffer.slice(bestSplit);
+        }
+        // Safety: if buffer grows too large without boundaries, flush anyway
+        if (sentenceBuffer.length > 300) {
+          flushSentence(sentenceBuffer);
+          sentenceBuffer = '';
         }
       };
 
-      // Stream from AI provider
+      // Try streaming, fall back to non-streaming if it fails
+      let streamingWorked = false;
+
       if (settings.aiProvider === 'claude' && claudeClientRef.current) {
-        // Use streaming API
-        for await (const chunk of claudeClientRef.current.streamText(
-          systemPrompt, history, { cachedContext }
-        )) {
-          processStreamChunk(chunk);
+        try {
+          for await (const chunk of claudeClientRef.current.streamText(
+            systemPrompt, history, { cachedContext }
+          )) {
+            processStreamChunk(chunk);
+          }
+          streamingWorked = true;
+        } catch (streamErr) {
+          console.warn('[Stream] Claude streaming failed, falling back:', streamErr);
+          fullResponse = await claudeClientRef.current.generateText(
+            systemPrompt, history, { cachedContext }
+          );
+          setStreamingText(fullResponse);
         }
 
-        // Dokumenten-Nachlademechanismus (non-streaming fallback for doc reload)
+        // Dokumenten-Nachlademechanismus
         const dokRequestMatch = fullResponse.match(/\[DOK_ANFRAGE:([^\]]+)\]/);
         if (dokRequestMatch && useRouter) {
           const requestedTitle = dokRequestMatch[1].trim();
@@ -874,13 +896,11 @@ function App() {
             d.title.toLowerCase() === requestedTitle.toLowerCase()
           );
           if (requestedDoc) {
-            const source = requestedDoc.isArchived ? 'Archiv' : 'aktiv';
-            console.log(`[Vermittler-KI] Dokument nachgeladen (${source}): "${requestedDoc.title}" (${requestedDoc.content.length} chars)`);
+            console.log(`[Vermittler-KI] Dokument nachgeladen: "${requestedDoc.title}"`);
             const reqCreated = formatDocDate(requestedDoc.createdAt);
             const reqUpdated = formatDocDate(requestedDoc.updatedAt);
             const extendedDocs = [...relevantDocs, `[${requestedDoc.title}${requestedDoc.isArchived ? ' (Archiv)' : ''} | Erstellt: ${reqCreated} | Aktualisiert: ${reqUpdated}]\n${requestedDoc.content}`];
             const extendedCache = buildCachedContext(extendedDocs);
-            // Re-generate with doc loaded (non-streaming, rare case)
             fullResponse = await claudeClientRef.current.generateText(
               systemPrompt, history, { cachedContext: extendedCache }
             );
@@ -888,17 +908,29 @@ function App() {
           }
         }
       } else if (geminiClientRef.current) {
-        // Stream from Gemini
-        for await (const chunk of geminiClientRef.current.streamText(
-          buildPrompt(relevantDocs), history
-        )) {
-          processStreamChunk(chunk);
+        try {
+          for await (const chunk of geminiClientRef.current.streamText(
+            buildPrompt(relevantDocs), history
+          )) {
+            processStreamChunk(chunk);
+          }
+          streamingWorked = true;
+        } catch (streamErr) {
+          console.warn('[Stream] Gemini streaming failed, falling back:', streamErr);
+          fullResponse = await geminiClientRef.current.generateText(
+            buildPrompt(relevantDocs), history
+          );
+          setStreamingText(fullResponse);
         }
       }
 
       // Flush remaining buffered text to TTS
       if (wantTTS && sentenceBuffer.trim()) {
         flushSentence(sentenceBuffer);
+      }
+      // If streaming failed, use full response for TTS (old behavior)
+      if (wantTTS && !streamingWorked && fullResponse.trim()) {
+        playTTS(fullResponse);
       }
 
       setStreamingText(null);
