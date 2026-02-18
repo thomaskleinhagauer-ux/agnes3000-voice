@@ -473,25 +473,12 @@ export class GeminiClient {
       : apiKey;
   }
 
-  // Free fallback using browser's built-in speech synthesis
-  private webSpeechFallback(text: string): void {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'de-DE';
-      utterance.rate = 0.9;
-      // Try to find a German voice
-      const voices = speechSynthesis.getVoices();
-      const germanVoice = voices.find(v => v.lang.startsWith('de'));
-      if (germanVoice) utterance.voice = germanVoice;
-      speechSynthesis.speak(utterance);
-      console.log('Using Web Speech API fallback for TTS');
-    }
-  }
-
-  async generateTTS(text: string, voice: string = 'Gacrux'): Promise<Uint8Array | null> {
+  async generateTTS(text: string, voice: string = 'Gacrux'): Promise<{ samples: Int16Array } | null> {
     try {
       // Style prompt for warm, mature therapist voice (Sigmund Freud-inspired)
       const styledText = `Sprich auf Deutsch mit ruhiger, warmer, reifer Stimme. Langsames, bedächtiges Sprechtempo wie ein erfahrener Wiener Psychotherapeut. Sanft aber bestimmt.\n\n${text}`;
+
+      console.log(`[TTS] Calling gemini-2.5-flash-preview-tts, voice=${voice}, text=${text.length} chars`);
 
       // Use gemini-2.5-flash-preview-tts for TTS
       const response = await fetch(
@@ -514,28 +501,32 @@ export class GeminiClient {
       );
 
       if (!response.ok) {
-        console.error('Gemini TTS error:', await response.text());
-        // Fallback to Web Speech API (free)
-        this.webSpeechFallback(text);
-        return null;
+        const errorText = await response.text();
+        console.error(`[TTS] API error ${response.status}:`, errorText);
+        throw new Error(`TTS API ${response.status}: ${errorText.slice(0, 200)}`);
       }
 
       const data = await response.json();
       const audioContent = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 
       if (audioContent) {
+        // Decode base64 to binary
         const binaryString = atob(audioContent);
-        const bytes = new Uint8Array(binaryString.length);
+        const rawBytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
+          rawBytes[i] = binaryString.charCodeAt(i);
         }
-        return bytes;
+        // Audio is L16 (16-bit signed PCM little-endian) at 24kHz
+        const samples = new Int16Array(rawBytes.buffer);
+        console.log(`[TTS] Got ${samples.length} samples (${(samples.length / 24000).toFixed(1)}s audio)`);
+        return { samples };
       }
 
+      console.warn('[TTS] No audio content in response');
       return null;
     } catch (error) {
-      console.error('Gemini TTS error:', error);
-      return null;
+      console.error('[TTS] Error:', error);
+      throw error; // Let caller handle it with visible feedback
     }
   }
 

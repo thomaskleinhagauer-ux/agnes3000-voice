@@ -467,6 +467,10 @@ function App() {
   const playTTS = useCallback(async (text: string) => {
     if (!settings.ttsEnabled || !geminiClientRef.current) return;
 
+    // Clean text: remove emotion tags before speaking
+    const cleanText = text.replace(/\s*\[EMOTION:\w+\]\s*/g, '').trim();
+    if (!cleanText) return;
+
     const voice = currentRoom === 'paar' ? settings.voicePaar :
                   currentRoom === 'tom' ? settings.voiceTom :
                   currentRoom === 'lisa' ? settings.voiceLisa :
@@ -474,24 +478,45 @@ function App() {
 
     try {
       setIsSpeaking(true);
-      const audioData = await geminiClientRef.current.generateTTS(text, voice);
+      const audioData = await geminiClientRef.current.generateTTS(cleanText, voice);
       if (!audioData) {
         setIsSpeaking(false);
+        showToast('TTS: Keine Audiodaten erhalten', 'warning');
         return;
       }
 
-      // iOS Fallback: Use HTMLAudioElement with user interaction handling
+      const { samples } = audioData;
+
+      // iOS: Convert Int16 PCM to WAV blob for HTMLAudioElement
       if (isIOS) {
         try {
-          const base64 = btoa(String.fromCharCode(...audioData));
-          const audio = new Audio(`data:audio/wav;base64,${base64}`);
-          (audio as any).playsInline = true; // iOS attribute
-          audio.onended = () => setIsSpeaking(false);
+          // Build WAV file from PCM samples
+          const wavHeader = new ArrayBuffer(44);
+          const view = new DataView(wavHeader);
+          const numSamples = samples.length;
+          const byteRate = 24000 * 2; // 24kHz * 16bit/8
+          view.setUint32(0, 0x52494646, false); // "RIFF"
+          view.setUint32(4, 36 + numSamples * 2, true);
+          view.setUint32(8, 0x57415645, false); // "WAVE"
+          view.setUint32(12, 0x666d7420, false); // "fmt "
+          view.setUint32(16, 16, true);
+          view.setUint16(20, 1, true); // PCM
+          view.setUint16(22, 1, true); // mono
+          view.setUint32(24, 24000, true);
+          view.setUint32(28, byteRate, true);
+          view.setUint16(32, 2, true); // block align
+          view.setUint16(34, 16, true); // bits per sample
+          view.setUint32(36, 0x64617461, false); // "data"
+          view.setUint32(40, numSamples * 2, true);
+          const wavBlob = new Blob([wavHeader, samples.buffer], { type: 'audio/wav' });
+          const url = URL.createObjectURL(wavBlob);
+          const audio = new Audio(url);
+          (audio as any).playsInline = true;
+          audio.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(url); };
           await audio.play();
         } catch (err) {
           console.error('iOS audio play error:', err);
           setIsSpeaking(false);
-          // iOS requires user interaction for audio - show toast once
           if ((err as Error).name === 'NotAllowedError') {
             showToast('Tippe auf den Bildschirm um Audio zu aktivieren', 'warning');
           }
@@ -499,7 +524,7 @@ function App() {
         return;
       }
 
-      // Desktop: Use Web Audio API
+      // Desktop: Use Web Audio API with proper 16-bit PCM
       if (!audioCtxRef.current) {
         audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
           sampleRate: 24000
@@ -509,10 +534,11 @@ function App() {
       const ctx = audioCtxRef.current;
       if (ctx.state === 'suspended') await ctx.resume();
 
-      const audioBuffer = ctx.createBuffer(1, audioData.length, 24000);
+      // Convert Int16 samples to Float32 (-1.0 to 1.0)
+      const audioBuffer = ctx.createBuffer(1, samples.length, 24000);
       const channelData = audioBuffer.getChannelData(0);
-      for (let i = 0; i < audioData.length; i++) {
-        channelData[i] = (audioData[i] - 128) / 128;
+      for (let i = 0; i < samples.length; i++) {
+        channelData[i] = samples[i] / 32768;
       }
 
       const source = ctx.createBufferSource();
@@ -524,6 +550,7 @@ function App() {
     } catch (error) {
       console.error('TTS error:', error);
       setIsSpeaking(false);
+      showToast(`TTS-Fehler: ${(error as Error).message?.slice(0, 100) || 'Unbekannt'}`, 'error');
     }
   }, [settings, currentRoom, showToast]);
 
@@ -1600,6 +1627,14 @@ Format:
                       <h2 className="font-serif text-lg sm:text-xl font-bold text-amber-900">
                         {currentRoom === 'paar' ? 'Paar-Raum' : currentRoom === 'tom' ? settings.user1Name : settings.user2Name}
                       </h2>
+                      <p className="text-[10px] text-amber-500 font-mono">
+                        Chat: {settings.aiProvider === 'claude' ? settings.claudeModel : 'gemini-3-flash'} · TTS: gemini-2.5-flash-tts · Voice: {
+                          currentRoom === 'paar' ? settings.voicePaar :
+                          currentRoom === 'tom' ? settings.voiceTom :
+                          currentRoom === 'lisa' ? settings.voiceLisa :
+                          settings.voicePaar
+                        }
+                      </p>
                       {activeSession && (
                         <p className="text-xs text-amber-600">Ziel: {activeSession.goal}</p>
                       )}
