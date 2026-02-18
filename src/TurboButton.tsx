@@ -154,14 +154,14 @@ export function CostDisplay({ totalTokens, documentCount, isFirstMessage }: Cost
   const cost = calculateCost(totalTokens, false, !isFirstMessage);
 
   return (
-    <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-full px-3 py-1">
-      <DollarSign size={12} />
-      <span>
-        ~${cost.totalCostUSD.toFixed(3)} pro Nachricht
+    <div className="flex items-center gap-1 sm:gap-2 text-[10px] sm:text-xs text-gray-500 bg-gray-50 rounded-full px-2 sm:px-3 py-1 shrink-0 max-w-[200px] sm:max-w-none overflow-hidden whitespace-nowrap">
+      <DollarSign size={10} className="shrink-0" />
+      <span className="truncate">
+        ~${cost.totalCostUSD.toFixed(3)}/msg
         {!isFirstMessage && <span className="text-green-600 ml-1">(cached)</span>}
       </span>
-      <span className="text-gray-400">|</span>
-      <span>{totalTokens.toLocaleString()} tokens</span>
+      <span className="text-gray-400 hidden sm:inline">|</span>
+      <span className="hidden sm:inline">{totalTokens.toLocaleString()} tok</span>
     </div>
   );
 }

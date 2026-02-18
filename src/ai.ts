@@ -473,12 +473,35 @@ export class GeminiClient {
       : apiKey;
   }
 
+  // Strip markdown and limit text length for TTS
+  private cleanForTTS(text: string): string {
+    let clean = text
+      .replace(/\[EMOTION:\w+\]/g, '')      // emotion tags
+      .replace(/#{1,6}\s*/g, '')             // headings
+      .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1') // bold/italic
+      .replace(/`[^`]*`/g, '')              // code
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
+      .replace(/^[\s]*[-*+]\s*/gm, '')      // bullet points
+      .replace(/^\d+\.\s*/gm, '')           // numbered lists
+      .replace(/\n{2,}/g, '. ')             // double newlines → pause
+      .replace(/\n/g, ' ')                  // single newlines
+      .replace(/\s{2,}/g, ' ')             // multiple spaces
+      .trim();
+    // Limit to ~1500 chars (~60 seconds of speech)
+    if (clean.length > 1500) {
+      const cutoff = clean.lastIndexOf('.', 1500);
+      clean = clean.slice(0, cutoff > 1000 ? cutoff + 1 : 1500) + ' Das war die Zusammenfassung.';
+    }
+    return clean;
+  }
+
   async generateTTS(text: string, voice: string = 'Gacrux'): Promise<{ samples: Int16Array } | null> {
     try {
+      const cleanText = this.cleanForTTS(text);
       // Style prompt for warm, mature therapist voice (Sigmund Freud-inspired)
-      const styledText = `Sprich auf Deutsch mit ruhiger, warmer, reifer Stimme. Langsames, bedächtiges Sprechtempo wie ein erfahrener Wiener Psychotherapeut. Sanft aber bestimmt.\n\n${text}`;
+      const styledText = `Sprich auf Deutsch mit ruhiger, warmer, reifer Stimme. Langsames, bedächtiges Sprechtempo wie ein erfahrener Wiener Psychotherapeut. Sanft aber bestimmt.\n\n${cleanText}`;
 
-      console.log(`[TTS] Calling gemini-2.5-flash-preview-tts, voice=${voice}, text=${text.length} chars`);
+      console.log(`[TTS] Calling gemini-2.5-flash-preview-tts, voice=${voice}, text=${cleanText.length}/${text.length} chars`);
 
       // Use gemini-2.5-flash-preview-tts for TTS
       const response = await fetch(
