@@ -19,7 +19,7 @@ import {
 } from './types';
 
 import {
-  loadFromLocalStorage, saveToLocalStorage, defaultSettings,
+  loadFromLocalStorage, saveToLocalStorage, syncToServer, loadFromServer, defaultSettings,
   exportToJson, exportToBase64, smartImport, setRestoreFlag, getAndClearRestoreFlag,
   addMessage, clearRoomMessages, createSession, endSession, getUnreadCount
 } from './storage';
@@ -199,10 +199,27 @@ function App() {
   // Effects
   // ================================
 
-  // Save to localStorage on state change
+  // Save to localStorage + server on state change
   useEffect(() => {
     saveToLocalStorage(appState);
+    syncToServer(appState);
   }, [appState]);
+
+  // Load from server on mount (merge with localStorage, server wins for documents)
+  useEffect(() => {
+    loadFromServer().then(serverState => {
+      if (serverState) {
+        setAppState(prev => {
+          // Server has more/newer documents? Use server documents
+          const serverDocs = serverState.documents || [];
+          const localDocs = prev.documents || [];
+          const mergedDocs = serverDocs.length >= localDocs.length ? serverDocs : localDocs;
+          return { ...prev, documents: mergedDocs, strategies: serverState.strategies?.length > 0 ? serverState.strategies : prev.strategies };
+        });
+        console.log('[Server Sync] Merged server state');
+      }
+    });
+  }, []);
 
   // Initialize AI clients - always try to init, clients handle env var fallback
   useEffect(() => {

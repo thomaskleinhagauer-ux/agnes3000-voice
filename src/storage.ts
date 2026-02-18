@@ -7,6 +7,58 @@ import { AppState, Settings, Message, Document, StrategyDocument, SessionMetadat
 const STORAGE_KEY = 'imago-voice-data';
 const BACKUP_RESTORE_FLAG = 'imago-voice-restore-flag';
 
+// ================================
+// Server Sync (Railway Backend)
+// ================================
+
+// Detect if we're running with a backend (same origin serves API)
+const API_BASE = '';  // Same origin - works on Railway, empty for Vercel
+
+let syncTimeout: ReturnType<typeof setTimeout> | null = null;
+
+export const syncToServer = (state: AppState): void => {
+  // Debounce: sync 3s after last state change
+  if (syncTimeout) clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state),
+      });
+      if (res.ok) {
+        console.log('[Server Sync] State saved to server');
+      }
+    } catch {
+      // Server not available (Vercel/local) - silently ignore
+    }
+  }, 3000);
+};
+
+export const loadFromServer = async (): Promise<AppState | null> => {
+  try {
+    const res = await fetch(`${API_BASE}/api/state`);
+    if (res.ok) {
+      const data = await res.json();
+      console.log('[Server Sync] State loaded from server');
+      return {
+        ...defaultAppState,
+        ...data,
+        settings: { ...defaultSettings, ...data.settings },
+        messages: {
+          paar: data.messages?.paar || [],
+          tom: data.messages?.tom || [],
+          lisa: data.messages?.lisa || [],
+          assessment: data.messages?.assessment || [],
+        },
+      };
+    }
+  } catch {
+    // Server not available - use localStorage
+  }
+  return null;
+};
+
 export const defaultSettings: Settings = {
   user1Name: 'Tom',
   user2Name: 'Lisa',
