@@ -144,6 +144,7 @@ function App() {
   const [faceEmotion, setFaceEmotion] = useState<FaceEmotionAnalysis | null>(null);
   const [faceApiReady, setFaceApiReady] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [streamingText, setStreamingText] = useState<string | null>(null);
 
   // Document Editor
   const [editingDoc, setEditingDoc] = useState<Document | null>(null);
@@ -182,6 +183,7 @@ function App() {
   const sessionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const isRecordingRef = useRef(false);
+  const ttsQueueRef = useRef<{ chunks: Promise<{ samples: Int16Array } | null>[]; playing: boolean; cancelled: boolean }>({ chunks: [], playing: false, cancelled: false });
 
   // Destructure settings for convenience
   const { settings, messages, documents, strategies, sessions, roomMessages } = appState;
@@ -466,49 +468,27 @@ function App() {
   // TTS (before sendMessage so it can be used as dependency)
   // ================================
 
-  const playTTS = useCallback(async (text: string) => {
-    if (!settings.ttsEnabled || !geminiClientRef.current) return;
-
-    // Clean text: remove emotion tags before speaking
-    const cleanText = text.replace(/\s*\[EMOTION:\w+\]\s*/g, '').trim();
-    if (!cleanText) return;
-
-    const voice = currentRoom === 'paar' ? settings.voicePaar :
-                  currentRoom === 'tom' ? settings.voiceTom :
-                  currentRoom === 'lisa' ? settings.voiceLisa :
-                  settings.voicePaar;
-
-    try {
-      setIsSpeaking(true);
-      const audioData = await geminiClientRef.current.generateTTS(cleanText, voice);
-      if (!audioData) {
-        setIsSpeaking(false);
-        showToast('TTS: Keine Audiodaten erhalten', 'warning');
-        return;
-      }
-
-      const { samples } = audioData;
-
-      // iOS: Convert Int16 PCM to WAV blob for HTMLAudioElement
-      if (isIOS) {
-        try {
-          // Build WAV file from PCM samples
+  // Play Int16 PCM samples, returns a Promise that resolves when playback finishes
+  const playAudioBufferAsync = useCallback((samples: Int16Array): Promise<void> => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        if (isIOS) {
           const wavHeader = new ArrayBuffer(44);
           const view = new DataView(wavHeader);
           const numSamples = samples.length;
-          const byteRate = 24000 * 2; // 24kHz * 16bit/8
-          view.setUint32(0, 0x52494646, false); // "RIFF"
+          const byteRate = 24000 * 2;
+          view.setUint32(0, 0x52494646, false);
           view.setUint32(4, 36 + numSamples * 2, true);
-          view.setUint32(8, 0x57415645, false); // "WAVE"
-          view.setUint32(12, 0x666d7420, false); // "fmt "
+          view.setUint32(8, 0x57415645, false);
+          view.setUint32(12, 0x666d7420, false);
           view.setUint32(16, 16, true);
-          view.setUint16(20, 1, true); // PCM
-          view.setUint16(22, 1, true); // mono
+          view.setUint16(20, 1, true);
+          view.setUint16(22, 1, true);
           view.setUint32(24, 24000, true);
           view.setUint32(28, byteRate, true);
-          view.setUint16(32, 2, true); // block align
-          view.setUint16(34, 16, true); // bits per sample
-          view.setUint32(36, 0x64617461, false); // "data"
+          view.setUint16(32, 2, true);
+          view.setUint16(34, 16, true);
+          view.setUint32(36, 0x64617461, false);
           view.setUint32(40, numSamples * 2, true);
           const pcmBytes = new ArrayBuffer(numSamples * 2);
           const pcmView = new DataView(pcmBytes);
@@ -519,48 +499,92 @@ function App() {
           const url = URL.createObjectURL(wavBlob);
           const audio = new Audio(url);
           (audio as any).playsInline = true;
-          audio.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(url); };
+          audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+          audio.onerror = () => { URL.revokeObjectURL(url); reject(new Error('iOS audio error')); };
           await audio.play();
-        } catch (err) {
-          console.error('iOS audio play error:', err);
-          setIsSpeaking(false);
-          if ((err as Error).name === 'NotAllowedError') {
-            showToast('Tippe auf den Bildschirm um Audio zu aktivieren', 'warning');
+        } else {
+          if (!audioCtxRef.current) {
+            audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
           }
+          const ctx = audioCtxRef.current;
+          if (ctx.state === 'suspended') await ctx.resume();
+          const audioBuffer = ctx.createBuffer(1, samples.length, 24000);
+          const channelData = audioBuffer.getChannelData(0);
+          for (let i = 0; i < samples.length; i++) {
+            channelData[i] = samples[i] / 32768;
+          }
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.playbackRate.value = settings.ttsSpeed || 1.0;
+          source.connect(ctx.destination);
+          source.onended = () => resolve();
+          source.start();
         }
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }, [settings.ttsSpeed]);
+
+  // Process TTS queue: play audio chunks sequentially
+  const processTTSQueue = useCallback(async () => {
+    const q = ttsQueueRef.current;
+    if (q.playing) return; // Already processing
+    q.playing = true;
+    setIsSpeaking(true);
+
+    while (q.chunks.length > 0 && !q.cancelled) {
+      try {
+        const audioData = await q.chunks[0];
+        q.chunks.shift();
+        if (audioData && !q.cancelled) {
+          await playAudioBufferAsync(audioData.samples);
+        }
+      } catch (err) {
+        console.warn('[TTS Queue] Chunk error, skipping:', err);
+        q.chunks.shift();
+      }
+    }
+
+    q.playing = false;
+    if (!q.cancelled) setIsSpeaking(false);
+  }, [playAudioBufferAsync]);
+
+  // Enqueue a sentence for TTS (fires API call immediately, plays in order)
+  const enqueueTTSChunk = useCallback((sentence: string, voice: string) => {
+    const clean = sentence.replace(/\[EMOTION:\w+\]/g, '').trim();
+    if (!clean || clean.length < 5 || !geminiClientRef.current) return;
+    console.log(`[TTS Stream] Enqueueing: "${clean.slice(0, 60)}..." (${clean.length} chars)`);
+    const promise = geminiClientRef.current.generateTTS(clean, voice);
+    ttsQueueRef.current.chunks.push(promise);
+    processTTSQueue(); // Start playing if not already
+  }, [processTTSQueue]);
+
+  // Legacy single-shot TTS (fallback)
+  const playTTS = useCallback(async (text: string) => {
+    if (!settings.ttsEnabled || !geminiClientRef.current) return;
+    const cleanText = text.replace(/\s*\[EMOTION:\w+\]\s*/g, '').trim();
+    if (!cleanText) return;
+    const voice = currentRoom === 'paar' ? settings.voicePaar :
+                  currentRoom === 'tom' ? settings.voiceTom :
+                  currentRoom === 'lisa' ? settings.voiceLisa :
+                  settings.voicePaar;
+    try {
+      setIsSpeaking(true);
+      const audioData = await geminiClientRef.current.generateTTS(cleanText, voice);
+      if (!audioData) {
+        setIsSpeaking(false);
+        showToast('TTS: Keine Audiodaten erhalten', 'warning');
         return;
       }
-
-      // Desktop: Use Web Audio API with proper 16-bit PCM
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
-          sampleRate: 24000
-        });
-      }
-
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') await ctx.resume();
-
-      // Convert Int16 samples to Float32 (-1.0 to 1.0)
-      const audioBuffer = ctx.createBuffer(1, samples.length, 24000);
-      const channelData = audioBuffer.getChannelData(0);
-      for (let i = 0; i < samples.length; i++) {
-        channelData[i] = samples[i] / 32768;
-      }
-
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.playbackRate.value = settings.ttsSpeed || 1.0;
-      source.connect(ctx.destination);
-      source.onended = () => setIsSpeaking(false);
-      source.start();
-
+      await playAudioBufferAsync(audioData.samples);
+      setIsSpeaking(false);
     } catch (error) {
       console.error('TTS error:', error);
       setIsSpeaking(false);
       showToast(`TTS-Fehler: ${(error as Error).message?.slice(0, 100) || 'Unbekannt'}`, 'error');
     }
-  }, [settings, currentRoom, showToast]);
+  }, [settings, currentRoom, showToast, playAudioBufferAsync]);
 
   // ================================
   // AI Chat
@@ -757,17 +781,65 @@ function App() {
 
       let fullResponse = '';
 
-      // Use non-streaming API with prompt caching for documents
-      if (settings.aiProvider === 'claude' && claudeClientRef.current) {
-        fullResponse = await claudeClientRef.current.generateText(
-          systemPrompt, history, { cachedContext }
-        );
+      // Determine TTS voice for this room
+      const ttsVoice = currentRoom === 'paar' ? settings.voicePaar :
+                       currentRoom === 'tom' ? settings.voiceTom :
+                       currentRoom === 'lisa' ? settings.voiceLisa :
+                       settings.voicePaar;
+      const wantTTS = settings.ttsEnabled && geminiClientRef.current;
 
-        // Dokumenten-Nachlademechanismus: Wenn KI ein Dokument anfordert (auch aus Archiv)
+      // Reset TTS queue for new response
+      if (wantTTS) {
+        ttsQueueRef.current = { chunks: [], playing: false, cancelled: false };
+      }
+
+      // Streaming: buffer sentences and fire TTS for each
+      let sentenceBuffer = '';
+      let sentenceCount = 0;
+      const FIRST_CHUNK_MIN = 40; // Chars before first TTS fire (get speaking fast)
+      const BATCH_CHUNK_MIN = 120; // Chars for subsequent chunks (batch for efficiency)
+
+      const flushSentence = (text: string) => {
+        if (!wantTTS || !text.trim()) return;
+        sentenceCount++;
+        enqueueTTSChunk(text, ttsVoice);
+      };
+
+      const processStreamChunk = (chunk: string) => {
+        fullResponse += chunk;
+        setStreamingText(fullResponse);
+        if (!wantTTS) return;
+
+        sentenceBuffer += chunk;
+        // Find sentence boundaries (. ! ? followed by space or end)
+        const minChars = sentenceCount === 0 ? FIRST_CHUNK_MIN : BATCH_CHUNK_MIN;
+        const boundaryRegex = /[.!?]+[\s\n]+/g;
+        let lastBoundary = -1;
+        let match;
+        while ((match = boundaryRegex.exec(sentenceBuffer)) !== null) {
+          if (match.index + match[0].length >= minChars || sentenceBuffer.length >= minChars) {
+            lastBoundary = match.index + match[0].length;
+          }
+        }
+        if (lastBoundary > 0 && sentenceBuffer.slice(0, lastBoundary).trim().length >= minChars) {
+          flushSentence(sentenceBuffer.slice(0, lastBoundary));
+          sentenceBuffer = sentenceBuffer.slice(lastBoundary);
+        }
+      };
+
+      // Stream from AI provider
+      if (settings.aiProvider === 'claude' && claudeClientRef.current) {
+        // Use streaming API
+        for await (const chunk of claudeClientRef.current.streamText(
+          systemPrompt, history, { cachedContext }
+        )) {
+          processStreamChunk(chunk);
+        }
+
+        // Dokumenten-Nachlademechanismus (non-streaming fallback for doc reload)
         const dokRequestMatch = fullResponse.match(/\[DOK_ANFRAGE:([^\]]+)\]/);
         if (dokRequestMatch && useRouter) {
           const requestedTitle = dokRequestMatch[1].trim();
-          // Suche in ALLEN Dokumenten - aktive UND archivierte
           const requestedDoc = documents.find(d =>
             d.title.toLowerCase() === requestedTitle.toLowerCase()
           );
@@ -776,21 +848,29 @@ function App() {
             console.log(`[Vermittler-KI] Dokument nachgeladen (${source}): "${requestedDoc.title}" (${requestedDoc.content.length} chars)`);
             const extendedDocs = [...relevantDocs, `[${requestedDoc.title}${requestedDoc.isArchived ? ' (Archiv)' : ''}]\n${requestedDoc.content}`];
             const extendedCache = buildCachedContext(extendedDocs);
+            // Re-generate with doc loaded (non-streaming, rare case)
             fullResponse = await claudeClientRef.current.generateText(
               systemPrompt, history, { cachedContext: extendedCache }
             );
+            setStreamingText(null);
           }
         }
-
-        if (settings.ttsEnabled && fullResponse.trim() && geminiClientRef.current) {
-          playTTS(fullResponse);
-        }
       } else if (geminiClientRef.current) {
-        fullResponse = await geminiClientRef.current.generateText(buildPrompt(relevantDocs), history);
-        if (settings.ttsEnabled) {
-          playTTS(fullResponse);
+        // Stream from Gemini
+        for await (const chunk of geminiClientRef.current.streamText(
+          buildPrompt(relevantDocs), history
+        )) {
+          processStreamChunk(chunk);
         }
       }
+
+      // Flush remaining buffered text to TTS
+      if (wantTTS && sentenceBuffer.trim()) {
+        flushSentence(sentenceBuffer);
+      }
+
+      setStreamingText(null);
+
       // Extract emotion and clean response
       const emotion = extractEmotion(fullResponse);
       const cleanResponse = removeEmotionTag(fullResponse);
@@ -817,7 +897,7 @@ function App() {
       console.log('🏁 sendMessage finished');
       setIsLoading(false);
     }
-  }, [inputText, currentRoom, currentSpeaker, settings, messages, strategies, documents, activeSession, sessionTimeRemaining, currentEmotionAnalysis, showToast, playTTS]);
+  }, [inputText, currentRoom, currentSpeaker, settings, messages, strategies, documents, activeSession, sessionTimeRemaining, currentEmotionAnalysis, showToast, playTTS, enqueueTTSChunk]);
 
   // ================================
   // Speech Recognition (STT)
@@ -1770,11 +1850,16 @@ Format:
                   )}
                   {isLoading && (
                     <div className="flex justify-start">
-                      <div className="bg-white shadow rounded-2xl px-4 py-3">
-                        <div className="flex items-center gap-2">
+                      <div className="bg-white shadow rounded-2xl px-4 py-3 max-w-[80%]">
+                        <div className="flex items-center gap-2 mb-1">
                           <AnimatedAvatar emotion="neutral" isSpeaking={true} size="small" />
-                          <span className="text-amber-600">tippt...</span>
+                          <span className="text-xs font-bold text-amber-600">AGNES</span>
                         </div>
+                        {streamingText ? (
+                          <p className="text-sm sm:text-base whitespace-pre-wrap text-amber-900">{removeEmotionTag(streamingText)}<span className="animate-pulse">|</span></p>
+                        ) : (
+                          <span className="text-amber-600">tippt...</span>
+                        )}
                       </div>
                     </div>
                   )}

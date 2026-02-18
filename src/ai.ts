@@ -555,43 +555,46 @@ export class GeminiClient {
     }
   }
 
+  // Build common request body for Gemini chat
+  private buildChatBody(prompt: string, history: Message[]) {
+    const contents = history
+      .filter(msg => msg.content && msg.content.trim())
+      .map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.content }],
+      }));
+
+    if (contents.length === 0) {
+      contents.push({ role: 'user', parts: [{ text: 'Start' }] });
+    }
+
+    const MAX_GEMINI_SYSTEM_CHARS = 30000;
+    let systemPrompt = prompt;
+    if (prompt.length > MAX_GEMINI_SYSTEM_CHARS) {
+      console.warn(`[Gemini] System prompt too long (${prompt.length} chars), truncating to ${MAX_GEMINI_SYSTEM_CHARS}`);
+      systemPrompt = prompt.slice(0, MAX_GEMINI_SYSTEM_CHARS) + '\n\n[System prompt gekürzt wegen Längenbeschränkung]';
+    }
+
+    return {
+      contents,
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      generationConfig: { maxOutputTokens: 4096 },
+    };
+  }
+
+  private get chatModel(): string {
+    return this.testMode ? 'gemini-2.5-flash' : 'gemini-3-flash-preview';
+  }
+
   async generateText(prompt: string, history: Message[] = []): Promise<string> {
     try {
-      const contents = history
-        .filter(msg => msg.content && msg.content.trim())
-        .map(msg => ({
-          role: msg.role === 'user' ? 'user' : 'model',
-          parts: [{ text: msg.content }],
-        }));
-
-      // Gemini requires at least one message
-      if (contents.length === 0) {
-        contents.push({ role: 'user', parts: [{ text: 'Start' }] });
-      }
-
-      // Truncate system prompt if too long for Gemini (limit ~30K chars to be safe)
-      const MAX_GEMINI_SYSTEM_CHARS = 30000;
-      let systemPrompt = prompt;
-      if (prompt.length > MAX_GEMINI_SYSTEM_CHARS) {
-        console.warn(`[Gemini] System prompt too long (${prompt.length} chars), truncating to ${MAX_GEMINI_SYSTEM_CHARS}`);
-        systemPrompt = prompt.slice(0, MAX_GEMINI_SYSTEM_CHARS) + '\n\n[System prompt gekürzt wegen Längenbeschränkung]';
-      }
-
-      const chatModel = this.testMode ? 'gemini-2.5-flash' : 'gemini-3-flash-preview';
+      const body = this.buildChatBody(prompt, history);
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${chatModel}:generateContent?key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${this.chatModel}:generateContent?key=${this.apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents,
-            systemInstruction: {
-              parts: [{ text: systemPrompt }]
-            },
-            generationConfig: {
-              maxOutputTokens: 4096,
-            },
-          }),
+          body: JSON.stringify(body),
         }
       );
 
@@ -609,6 +612,59 @@ export class GeminiClient {
       return text || '';
     } catch (error) {
       console.error('Gemini generateText error:', error);
+      throw error;
+    }
+  }
+
+  async *streamText(prompt: string, history: Message[] = []): AsyncGenerator<string, void, unknown> {
+    try {
+      const body = this.buildChatBody(prompt, history);
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${this.chatModel}:streamGenerateContent?alt=sse&key=${this.apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Gemini stream error: ${response.status} - ${errorText.slice(0, 200)}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE events from buffer
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr || jsonStr === '[DONE]') continue;
+            try {
+              const data = JSON.parse(jsonStr);
+              const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (text) yield text;
+            } catch {
+              // Skip malformed JSON chunks
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Gemini streamText error:', error);
       throw error;
     }
   }
