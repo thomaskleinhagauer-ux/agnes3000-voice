@@ -508,7 +508,12 @@ function App() {
           view.setUint16(34, 16, true); // bits per sample
           view.setUint32(36, 0x64617461, false); // "data"
           view.setUint32(40, numSamples * 2, true);
-          const wavBlob = new Blob([wavHeader, new Uint8Array(samples.buffer)], { type: 'audio/wav' });
+          const pcmBytes = new ArrayBuffer(numSamples * 2);
+          const pcmView = new DataView(pcmBytes);
+          for (let i = 0; i < numSamples; i++) {
+            pcmView.setInt16(i * 2, samples[i], true);
+          }
+          const wavBlob = new Blob([wavHeader, pcmBytes], { type: 'audio/wav' });
           const url = URL.createObjectURL(wavBlob);
           const audio = new Audio(url);
           (audio as any).playsInline = true;
