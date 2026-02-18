@@ -2746,39 +2746,59 @@ Format:
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
-                          <label className="text-sm text-amber-700">Paar-Raum</label>
+                          <label className="text-sm text-amber-700">AGNES Stimme</label>
                           <select
                             value={settings.voicePaar}
                             onChange={e => updateSettings({ voicePaar: e.target.value })}
                             className="w-full mt-1 p-2 border border-amber-200 rounded-lg text-sm"
                           >
-                            <option value="Zephyr">Zephyr (neutral)</option>
-                            <option value="Puck">Puck (männlich)</option>
-                            <option value="Kore">Kore (weiblich)</option>
+                            <option value="Gacrux">Gacrux (reif/Freud)</option>
+                            <option value="Sadaltager">Sadaltager (wissend)</option>
+                            <option value="Schedar">Schedar (ausgeglichen)</option>
+                            <option value="Charon">Charon (informativ)</option>
+                            <option value="Orus">Orus (bestimmt)</option>
+                            <option value="Algieba">Algieba (sanft)</option>
+                            <option value="Vindemiatrix">Vindemiatrix (warm)</option>
+                            <option value="Sulafat">Sulafat (warm)</option>
+                            <option value="Achernar">Achernar (leise)</option>
+                            <option value="Puck">Puck (lebhaft)</option>
+                            <option value="Kore">Kore (bestimmt/w)</option>
+                            <option value="Zephyr">Zephyr (hell)</option>
                           </select>
                         </div>
                         <div>
-                          <label className="text-sm text-amber-700">{settings.user1Name}</label>
+                          <label className="text-sm text-amber-700">{settings.user1Name}-Raum</label>
                           <select
                             value={settings.voiceTom}
                             onChange={e => updateSettings({ voiceTom: e.target.value })}
                             className="w-full mt-1 p-2 border border-amber-200 rounded-lg text-sm"
                           >
-                            <option value="Puck">Puck</option>
-                            <option value="Zephyr">Zephyr</option>
-                            <option value="Kore">Kore</option>
+                            <option value="Gacrux">Gacrux (reif/Freud)</option>
+                            <option value="Sadaltager">Sadaltager (wissend)</option>
+                            <option value="Schedar">Schedar (ausgeglichen)</option>
+                            <option value="Charon">Charon (informativ)</option>
+                            <option value="Sulafat">Sulafat (warm)</option>
+                            <option value="Vindemiatrix">Vindemiatrix (warm)</option>
+                            <option value="Puck">Puck (lebhaft)</option>
+                            <option value="Kore">Kore (bestimmt/w)</option>
+                            <option value="Zephyr">Zephyr (hell)</option>
                           </select>
                         </div>
                         <div>
-                          <label className="text-sm text-amber-700">{settings.user2Name}</label>
+                          <label className="text-sm text-amber-700">{settings.user2Name}-Raum</label>
                           <select
                             value={settings.voiceLisa}
                             onChange={e => updateSettings({ voiceLisa: e.target.value })}
                             className="w-full mt-1 p-2 border border-amber-200 rounded-lg text-sm"
                           >
-                            <option value="Kore">Kore</option>
-                            <option value="Zephyr">Zephyr</option>
-                            <option value="Puck">Puck</option>
+                            <option value="Kore">Kore (bestimmt/w)</option>
+                            <option value="Vindemiatrix">Vindemiatrix (warm)</option>
+                            <option value="Sulafat">Sulafat (warm)</option>
+                            <option value="Gacrux">Gacrux (reif/Freud)</option>
+                            <option value="Sadaltager">Sadaltager (wissend)</option>
+                            <option value="Achernar">Achernar (leise)</option>
+                            <option value="Zephyr">Zephyr (hell)</option>
+                            <option value="Puck">Puck (lebhaft)</option>
                           </select>
                         </div>
                       </div>

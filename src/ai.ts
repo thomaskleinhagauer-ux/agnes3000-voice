@@ -488,16 +488,19 @@ export class GeminiClient {
     }
   }
 
-  async generateTTS(text: string, voice: string = 'Zephyr'): Promise<Uint8Array | null> {
+  async generateTTS(text: string, voice: string = 'Gacrux'): Promise<Uint8Array | null> {
     try {
-      // Use gemini-2.0-flash-exp for TTS (supports audio output)
+      // Style prompt for warm, mature therapist voice (Sigmund Freud-inspired)
+      const styledText = `Sprich auf Deutsch mit ruhiger, warmer, reifer Stimme. Langsames, bedächtiges Sprechtempo wie ein erfahrener Wiener Psychotherapeut. Sanft aber bestimmt.\n\n${text}`;
+
+      // Use gemini-2.5-flash-preview-tts for TTS
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${this.apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text }] }],
+            contents: [{ parts: [{ text: styledText }] }],
             generationConfig: {
               responseModalities: ['AUDIO'],
               speechConfig: {
