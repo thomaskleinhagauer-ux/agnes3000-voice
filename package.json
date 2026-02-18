@@ -27,6 +27,9 @@
     "three": "^0.166.1",
     "uuid": "^13.0.0"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
