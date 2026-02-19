@@ -221,9 +221,28 @@ function App() {
           const serverDocs = serverState.documents || [];
           const localDocs = prev.documents || [];
           const mergedDocs = serverDocs.length >= localDocs.length ? serverDocs : localDocs;
-          return { ...prev, documents: mergedDocs, strategies: serverState.strategies?.length > 0 ? serverState.strategies : prev.strategies };
+
+          // Merge settings from server (passwords, API keys, preferences)
+          // Server wins for fields that are set, local wins for defaults
+          const serverSettings = serverState.settings || {};
+          const mergedSettings = { ...prev.settings };
+          for (const key of Object.keys(serverSettings)) {
+            const val = serverSettings[key as keyof typeof serverSettings];
+            if (val !== undefined && val !== null && val !== '') {
+              (mergedSettings as Record<string, unknown>)[key] = val;
+            }
+          }
+
+          return {
+            ...prev,
+            documents: mergedDocs,
+            strategies: serverState.strategies?.length > 0 ? serverState.strategies : prev.strategies,
+            settings: mergedSettings,
+            sessions: serverState.sessions?.length > 0 ? serverState.sessions : prev.sessions,
+            roomMessages: serverState.roomMessages?.length > 0 ? serverState.roomMessages : prev.roomMessages,
+          };
         });
-        console.log('[Server Sync] Merged server state');
+        console.log('[Server Sync] Merged server state (incl. settings)');
       }
     });
   }, []);

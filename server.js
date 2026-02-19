@@ -19,7 +19,8 @@ const PORT = process.env.PORT || 3000;
 // Data Storage
 // ================================
 
-const DATA_DIR = path.join(__dirname, 'data');
+// Use Railway volume mount if available, fallback to local data/
+const DATA_DIR = fs.existsSync('/app/data') ? '/app/data' : path.join(__dirname, 'data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 
 // Ensure data directory exists
@@ -144,7 +145,52 @@ app.get('/api/documents', (req, res) => {
 // AI Proxy Routes (API keys stay on server)
 // ================================
 
-// Proxy Claude API calls
+// Anthropic SDK compatible proxy (browser clients use this via baseURL)
+app.post('/api/anthropic/v1/messages', async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured on server' });
+  }
+  const isStream = req.body.stream;
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        ...(req.body.model?.includes('claude-') && { 'anthropic-beta': 'prompt-caching-2024-07-31' }),
+      },
+      body: JSON.stringify(req.body),
+    });
+
+    if (isStream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      const reader = response.body.getReader();
+      const pump = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) { res.end(); break; }
+          res.write(Buffer.from(value));
+        }
+      };
+      pump().catch(err => {
+        console.error('[AI Proxy] Claude SDK proxy stream error:', err.message);
+        res.end();
+      });
+    } else {
+      const data = await response.json();
+      res.status(response.status).json(data);
+    }
+  } catch (err) {
+    console.error('[AI Proxy] Claude SDK proxy error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Proxy Claude API calls (legacy)
 app.post('/api/ai/claude', async (req, res) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -206,8 +252,8 @@ app.post('/api/ai/gemini/:model', async (req, res) => {
   }
   const { model } = req.params;
   const { stream } = req.query;
-  const endpoint = stream === 'true' ? 'streamGenerateContent?alt=sse' : 'generateContent';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}&key=${apiKey}`;
+  const endpoint = stream === 'true' ? `streamGenerateContent?alt=sse&key=${apiKey}` : `generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}`;
 
   try {
     const response = await fetch(url, {

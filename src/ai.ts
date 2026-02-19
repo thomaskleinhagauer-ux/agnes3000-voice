@@ -311,13 +311,18 @@ export class ClaudeClient {
 
   constructor(apiKey: string, model: string = 'claude-opus-4-6') {
     // Use env var if key is placeholder or empty
-    const actualKey = (apiKey === HARDCODED_API_KEY || !apiKey)
-      ? import.meta.env.VITE_ANTHROPIC_API_KEY || apiKey
-      : apiKey;
+    const useProxy = (apiKey === HARDCODED_API_KEY || !apiKey) && !import.meta.env.VITE_ANTHROPIC_API_KEY;
+    const actualKey = useProxy
+      ? 'proxy'
+      : (apiKey === HARDCODED_API_KEY || !apiKey)
+        ? import.meta.env.VITE_ANTHROPIC_API_KEY || apiKey
+        : apiKey;
 
     this.client = new Anthropic({
       apiKey: actualKey,
       dangerouslyAllowBrowser: true,
+      // Route through server proxy when no real API key available
+      ...(useProxy && { baseURL: `${window.location.origin}/api/anthropic` }),
     });
     this.model = model;
   }
@@ -485,13 +490,26 @@ export class ClaudeClient {
 export class GeminiClient {
   private apiKey: string;
   private testMode: boolean;
+  private useProxy: boolean;
 
   constructor(apiKey: string, testMode: boolean = false) {
     // Use env var if key is placeholder or empty
-    this.apiKey = (apiKey === HARDCODED_API_KEY || !apiKey)
-      ? import.meta.env.VITE_GEMINI_API_KEY || apiKey
-      : apiKey;
+    this.useProxy = (apiKey === HARDCODED_API_KEY || !apiKey) && !import.meta.env.VITE_GEMINI_API_KEY;
+    this.apiKey = this.useProxy
+      ? 'proxy'
+      : (apiKey === HARDCODED_API_KEY || !apiKey)
+        ? import.meta.env.VITE_GEMINI_API_KEY || apiKey
+        : apiKey;
     this.testMode = testMode;
+  }
+
+  // Get API URL — use server proxy when no real key available
+  private getUrl(model: string, action: string, stream: boolean = false): string {
+    if (this.useProxy) {
+      return `${window.location.origin}/api/ai/gemini/${model}?action=${action}${stream ? '&stream=true' : ''}`;
+    }
+    const suffix = stream ? `stream${action}?alt=sse&key=${this.apiKey}` : `${action}?key=${this.apiKey}`;
+    return `https://generativelanguage.googleapis.com/v1beta/models/${model}:${suffix}`;
   }
 
   // Strip markdown and limit text length for TTS
@@ -526,7 +544,7 @@ export class GeminiClient {
 
       // Use gemini-2.5-flash-preview-tts for TTS
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${this.apiKey}`,
+        this.getUrl('gemini-2.5-flash-preview-tts', 'generateContent'),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -611,7 +629,7 @@ export class GeminiClient {
     try {
       const body = this.buildChatBody(prompt, history);
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${this.chatModel}:generateContent?key=${this.apiKey}`,
+        this.getUrl(this.chatModel, 'generateContent'),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -641,7 +659,7 @@ export class GeminiClient {
     try {
       const body = this.buildChatBody(prompt, history);
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${this.chatModel}:streamGenerateContent?alt=sse&key=${this.apiKey}`,
+        this.getUrl(this.chatModel, 'GenerateContent', true),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

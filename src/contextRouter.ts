@@ -206,18 +206,21 @@ async function routeWithGemini(
   systemPrompt: string,
   userMessage: string
 ): Promise<string> {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiApiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { maxOutputTokens: 1024 },
-      }),
-    }
-  );
+  // Use server proxy when key is placeholder
+  const useProxy = geminiApiKey === 'agnes3001' || !geminiApiKey;
+  const url = useProxy
+    ? `${window.location.origin}/api/ai/gemini/gemini-3-flash-preview`
+    : `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiApiKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      generationConfig: { maxOutputTokens: 1024 },
+    }),
+  });
   if (!response.ok) throw new Error(`Gemini router ${response.status}`);
   const data = await response.json();
   return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
