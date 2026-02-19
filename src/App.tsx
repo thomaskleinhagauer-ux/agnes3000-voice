@@ -79,6 +79,13 @@ const isIOS = (() => {
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 })();
 
+// Haptic feedback for native iOS feel
+const haptic = (style: 'light' | 'medium' | 'heavy' = 'light') => {
+  if (navigator.vibrate) {
+    navigator.vibrate(style === 'light' ? 10 : style === 'medium' ? 20 : 40);
+  }
+};
+
 // Emotion to Avatar mapping
 const EMOTION_AVATARS: Record<EmotionType, string> = {
   neutral: '😐',
@@ -389,6 +396,7 @@ function App() {
   }, [settings]);
 
   const attemptRoomEntry = useCallback((room: RoomType) => {
+    haptic('medium');
     // Assessment and Paar room might not need password
     if (room === 'assessment') {
       setCurrentRoom('assessment');
@@ -1538,7 +1546,7 @@ Format:
       />
       <canvas ref={canvasRef} className="hidden" />
 
-      <div className="flex h-screen safe-area-top safe-area-bottom">
+      <div className="flex h-dvh safe-area-top safe-area-bottom">
         {/* Sidebar - Desktop */}
         <div className="hidden md:flex w-64 bg-white/80 backdrop-blur border-r border-amber-200 flex-col">
           {/* Logo */}
@@ -1977,7 +1985,7 @@ Format:
                       className="flex-1 px-4 py-2.5 border border-amber-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-50 resize-none text-sm sm:text-base"
                     />
                     <button
-                      onClick={toggleRecording}
+                      onClick={() => { haptic('medium'); toggleRecording(); }}
                       className={`p-2.5 rounded-xl transition ${
                         isRecording ? 'bg-red-600 text-white animate-pulse' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
                       }`}
@@ -1985,7 +1993,7 @@ Format:
                       {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
                     </button>
                     <button
-                      onClick={sendMessage}
+                      onClick={() => { haptic(); sendMessage(); }}
                       disabled={isLoading || !inputText.trim()}
                       className="px-4 py-2.5 bg-amber-600 text-white rounded-xl hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
@@ -3152,23 +3160,23 @@ Format:
           </div>
 
           {/* Mobile Navigation */}
-          <div className="md:hidden bg-white border-t border-amber-200 px-2 py-2 flex justify-around">
+          <div className="md:hidden bg-white/95 backdrop-blur-sm border-t border-amber-200 px-2 py-2 flex justify-around safe-area-bottom">
             <button
-              onClick={() => { setCurrentRoom(null); setActiveView('rooms'); }}
+              onClick={() => { haptic(); setCurrentRoom(null); setActiveView('rooms'); }}
               className={`flex flex-col items-center p-2 rounded-lg ${activeView === 'rooms' && !currentRoom ? 'text-amber-600' : 'text-amber-400'}`}
             >
               <Home size={20} />
               <span className="text-[10px] mt-0.5">Home</span>
             </button>
             <button
-              onClick={() => setActiveView('documents')}
+              onClick={() => { haptic(); setActiveView('documents'); }}
               className={`flex flex-col items-center p-2 rounded-lg ${activeView === 'documents' ? 'text-amber-600' : 'text-amber-400'}`}
             >
               <FileText size={20} />
               <span className="text-[10px] mt-0.5">Docs</span>
             </button>
             <button
-              onClick={() => setActiveView('messages')}
+              onClick={() => { haptic(); setActiveView('messages'); }}
               className={`flex flex-col items-center p-2 rounded-lg relative ${activeView === 'messages' ? 'text-amber-600' : 'text-amber-400'}`}
             >
               <MessageSquare size={20} />
@@ -3180,21 +3188,21 @@ Format:
               )}
             </button>
             <button
-              onClick={() => setActiveView('history')}
+              onClick={() => { haptic(); setActiveView('history'); }}
               className={`flex flex-col items-center p-2 rounded-lg ${activeView === 'history' ? 'text-amber-600' : 'text-amber-400'}`}
             >
               <History size={20} />
               <span className="text-[10px] mt-0.5">Verlauf</span>
             </button>
             <button
-              onClick={() => setActiveView('backup')}
+              onClick={() => { haptic(); setActiveView('backup'); }}
               className={`flex flex-col items-center p-2 rounded-lg ${activeView === 'backup' ? 'text-amber-600' : 'text-amber-400'}`}
             >
               <Cloud size={20} />
               <span className="text-[10px] mt-0.5">Sync</span>
             </button>
             <button
-              onClick={() => setActiveView('settings')}
+              onClick={() => { haptic(); setActiveView('settings'); }}
               className={`flex flex-col items-center p-2 rounded-lg ${activeView === 'settings' ? 'text-amber-600' : 'text-amber-400'}`}
             >
               <SettingsIcon size={20} />
