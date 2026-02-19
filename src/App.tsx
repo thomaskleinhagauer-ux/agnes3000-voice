@@ -227,6 +227,9 @@ function App() {
       // Test mode: use Haiku for cheap testing
       const model = settings.testMode ? 'claude-haiku-4-5-20251001' : settings.claudeModel;
       claudeClientRef.current = new ClaudeClient(settings.claudeApiKey || 'agnes3001', model);
+    } else {
+      // Gemini-Modus: Claude-Client entfernen, damit Router Gemini Flash nutzt statt Haiku
+      claudeClientRef.current = null;
     }
     // Always init Gemini for TTS (and test mode chat)
     geminiClientRef.current = new GeminiClient(settings.geminiApiKey || 'agnes3001', settings.testMode);
