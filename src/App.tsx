@@ -711,7 +711,7 @@ function App() {
         const selectedIdSet = new Set(routerResult.selectedDocIds);
         relevantDocs = allDocs
           .filter(d => selectedIdSet.has(d.id))
-          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
           .map(d => {
             const created = formatDocDate(d.createdAt);
             const updated = formatDocDate(d.updatedAt);
@@ -729,7 +729,7 @@ function App() {
         const MAX_DOC_CHARS = 300000; // 300K chars (~75K tokens) - reduced to stay under 200K limit
         let docChars = 0;
         relevantDocs = allDocs
-          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
           .reduce((acc: string[], d) => {
             const created = formatDocDate(d.createdAt);
             const updated = formatDocDate(d.updatedAt);
@@ -785,12 +785,13 @@ function App() {
             parts.push(docsText);
             budget -= docsText.length;
           } else {
-            // Truncate docs to fit
+            // Truncate docs to fit — skip large docs, don't break (small docs like diary entries must still get included!)
             let truncatedDocs = '';
             for (const doc of docs) {
               if (truncatedDocs.length + doc.length + 10 <= budget - 50) {
                 truncatedDocs += (truncatedDocs ? '\n\n' : '') + doc;
-              } else break;
+              }
+              // continue to next doc instead of break — small recent docs are more important than fitting in order
             }
             if (truncatedDocs) {
               parts.push(`RELEVANTE DOKUMENTE (Volltext, gekuerzt):\n${truncatedDocs}`);

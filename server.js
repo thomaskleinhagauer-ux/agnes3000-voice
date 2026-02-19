@@ -262,6 +262,14 @@ app.post('/api/ai/gemini/:model', async (req, res) => {
       body: JSON.stringify(req.body),
     });
 
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error(`[AI Proxy] Gemini API error ${response.status}:`, errorText.slice(0, 500));
+      return res.status(response.status).json({
+        error: `Gemini API ${response.status}: ${errorText.slice(0, 200) || 'Unknown error'}`,
+      });
+    }
+
     if (stream === 'true') {
       // Forward SSE stream
       res.setHeader('Content-Type', 'text/event-stream');
@@ -280,8 +288,14 @@ app.post('/api/ai/gemini/:model', async (req, res) => {
         res.end();
       });
     } else {
-      const data = await response.json();
-      res.status(response.status).json(data);
+      const text = await response.text();
+      try {
+        const data = JSON.parse(text);
+        res.json(data);
+      } catch {
+        console.error('[AI Proxy] Gemini non-JSON response:', text.slice(0, 500));
+        res.status(502).json({ error: 'Gemini returned non-JSON response', details: text.slice(0, 200) });
+      }
     }
   } catch (err) {
     console.error('[AI Proxy] Gemini error:', err.message);

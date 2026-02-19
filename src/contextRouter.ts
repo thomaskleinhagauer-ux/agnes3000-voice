@@ -221,9 +221,18 @@ async function routeWithGemini(
       generationConfig: { maxOutputTokens: 1024 },
     }),
   });
-  if (!response.ok) throw new Error(`Gemini router ${response.status}`);
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    console.error(`[Vermittler-KI] Gemini router error ${response.status}:`, errorText.slice(0, 300));
+    throw new Error(`Gemini router ${response.status}: ${errorText.slice(0, 100)}`);
+  }
   const data = await response.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    console.error('[Vermittler-KI] Gemini returned empty response:', JSON.stringify(data).slice(0, 300));
+    throw new Error('Gemini router returned empty response');
+  }
+  return text;
 }
 
 export async function routeContext(
